@@ -5,7 +5,7 @@ import { SaudaService } from './sauda.service';
 async function bootstrap(): Promise<void> {
   const lotNumber = process.argv[2];
   if (!lotNumber) {
-    throw new Error('Usage: npm run sauda:lot -- <lotNumber>');
+    throw new Error('Usage: pnpm sauda:lot <lotNumber>');
   }
 
   const applicationContext = await NestFactory.createApplicationContext(
@@ -22,6 +22,6 @@ async function bootstrap(): Promise<void> {
 }
 
 bootstrap().catch((error: unknown) => {
-  void error;
+  console.error(error);
   process.exitCode = 1;
 });
