@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { redactDocumentUrl } from '../models/sauda-lot';
 import { SaudaModule } from '../sauda.module';
 import { SaudaService } from '../sauda.service';
 
@@ -15,7 +16,20 @@ async function bootstrap(): Promise<void> {
 
   try {
     const saudaService = applicationContext.get(SaudaService);
-    console.log(JSON.stringify(await saudaService.getLot(lotNumber), null, 2));
+    const lot = await saudaService.getLot(lotNumber);
+    console.log(
+      JSON.stringify(
+        {
+          ...lot,
+          documents: lot.documents.map((document) => ({
+            ...document,
+            url: redactDocumentUrl(document.url),
+          })),
+        },
+        null,
+        2,
+      ),
+    );
   } finally {
     await applicationContext.close();
   }

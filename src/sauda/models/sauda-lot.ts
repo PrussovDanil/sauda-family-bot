@@ -9,6 +9,13 @@ export interface LotDocument {
   extension?: string;
 }
 
+export function redactDocumentUrl(value: string): string {
+  const url = new URL(value);
+  return url
+    .toString()
+    .replace(/([?&]Token=)[^&#]*/i, '$1[REDACTED]');
+}
+
 export interface SaudaLot {
   lotNumber: string;
   publicationId: string;
