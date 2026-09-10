@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import * as cheerio from 'cheerio';
-import { LotNotFoundError } from './lot-not-found.error';
-import type { LotReference } from './lot-reference';
-import { SaudaUnavailableError } from './sauda-unavailable.error';
+import { LotNotFoundError } from '../errors/lot-not-found.error';
+import type { LotReference } from '../models/lot-reference';
+import { SaudaUnavailableError } from '../errors/sauda-unavailable.error';
 
 const SAUDA_ORIGIN = 'https://sauda.e-qazyna.kz';
 const SEARCH_PATH = '/ru/list';

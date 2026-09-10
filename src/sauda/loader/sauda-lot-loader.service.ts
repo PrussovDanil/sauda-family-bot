@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { LotPageUnavailableError } from './lot-page-unavailable.error';
+import { LotPageUnavailableError } from '../errors/lot-page-unavailable.error';
 
 @Injectable()
 export class SaudaLotLoaderService {

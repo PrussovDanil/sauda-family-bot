@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { LotMismatchError } from './lot-mismatch.error';
-import type { LotReference } from './lot-reference';
+import { LotMismatchError } from '../errors/lot-mismatch.error';
+import type { LotReference } from '../models/lot-reference';
 import { parseMoney, SaudaLotParser } from './sauda-lot.parser';
 
 const reference: LotReference = {

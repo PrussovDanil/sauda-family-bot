@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import type { SaudaLot } from './sauda-lot';
-import { SaudaLotLoaderService } from './sauda-lot-loader.service';
-import { SaudaLotParser } from './sauda-lot.parser';
-import { SaudaLotResolverService } from './sauda-lot-resolver.service';
+import type { SaudaLot } from './models/sauda-lot';
+import { SaudaLotLoaderService } from './loader/sauda-lot-loader.service';
+import { SaudaLotParser } from './parser/sauda-lot.parser';
+import { SaudaLotResolverService } from './resolver/sauda-lot-resolver.service';
 
 @Injectable()
 export class SaudaService {

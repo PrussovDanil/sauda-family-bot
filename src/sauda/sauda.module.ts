@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { SaudaLotLoaderService } from './sauda-lot-loader.service';
-import { SaudaLotParser } from './sauda-lot.parser';
-import { SaudaLotResolverService } from './sauda-lot-resolver.service';
+import { SaudaLotLoaderService } from './loader/sauda-lot-loader.service';
+import { SaudaLotParser } from './parser/sauda-lot.parser';
+import { SaudaLotResolverService } from './resolver/sauda-lot-resolver.service';
 import { SaudaService } from './sauda.service';
 
 @Module({

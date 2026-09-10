@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import * as cheerio from 'cheerio';
 import Decimal from 'decimal.js';
-import { LotMismatchError } from './lot-mismatch.error';
-import { LotPageParseError } from './lot-page-parse.error';
-import type { LotReference } from './lot-reference';
-import type { LotDocument, Money, SaudaLot } from './sauda-lot';
+import { LotMismatchError } from '../errors/lot-mismatch.error';
+import { LotPageParseError } from '../errors/lot-page-parse.error';
+import type { LotReference } from '../models/lot-reference';
+import type { LotDocument, Money, SaudaLot } from '../models/sauda-lot';
 
 const SAUDA_ORIGIN = 'https://sauda.e-qazyna.kz';
 const LOT_NUMBER_PATTERN = /^№\s*(\d+)$/;

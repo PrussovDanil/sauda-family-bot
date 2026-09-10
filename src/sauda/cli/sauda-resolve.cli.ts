@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
-import { SaudaLotResolverService } from './sauda-lot-resolver.service';
-import { SaudaModule } from './sauda.module';
+import { SaudaLotResolverService } from '../resolver/sauda-lot-resolver.service';
+import { SaudaModule } from '../sauda.module';
 
 async function bootstrap(): Promise<void> {
   const lotNumber = process.argv[2];
