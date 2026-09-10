@@ -10,5 +10,9 @@ export interface TextQualityResult {
     controlCharacterRatio: number;
     singleCharacterLineRatio: number;
     readableWordRatio: number;
+    mixedScriptTokenRatio: number;
+    symbolInsideWordRatio: number;
+    suspiciousShortTokenRatio: number;
+    fragmentedWordRatio: number;
   };
 }

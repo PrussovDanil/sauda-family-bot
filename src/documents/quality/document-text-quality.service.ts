@@ -11,6 +11,9 @@ const MIN_READABLE_WORD_RATIO = 0.45;
 const MAX_SPECIAL_CHARACTER_RATIO = 0.15;
 const MAX_SHORT_DAMAGED_TOKEN_RATIO = 0.25;
 const MAX_SUSPICIOUS_OCR_TOKEN_RATIO = 0.12;
+const MAX_MIXED_SCRIPT_TOKEN_RATIO = 0.02;
+const MAX_SYMBOL_INSIDE_WORD_RATIO = 0.03;
+const MAX_FRAGMENTED_WORD_RATIO = 0.08;
 
 const LOW_TEXT_DEDUCTION = 20;
 const LOW_DENSITY_DEDUCTION = 30;
@@ -21,6 +24,9 @@ const UNREADABLE_WORD_DEDUCTION = 30;
 const SPECIAL_CHARACTER_DEDUCTION = 25;
 const DAMAGED_TOKEN_DEDUCTION = 35;
 const SUSPICIOUS_OCR_TOKEN_DEDUCTION = 35;
+const MIXED_SCRIPT_TOKEN_DEDUCTION = 40;
+const SYMBOL_INSIDE_WORD_DEDUCTION = 30;
+const FRAGMENTED_WORD_DEDUCTION = 30;
 
 @Injectable()
 export class DocumentTextQualityService {
@@ -53,10 +59,7 @@ export class DocumentTextQualityService {
 
     let score = 100;
     const reasons: string[] = [];
-    const tokens = trimmedText.split(/\s+/).filter(Boolean);
     const specialCharacterRatio = this.getSpecialCharacterRatio(trimmedText);
-    const shortDamagedTokenRatio = this.getShortDamagedTokenRatio(tokens);
-    const suspiciousOcrTokenRatio = this.getSuspiciousOcrTokenRatio(tokens);
 
     if (metrics.textLength < MIN_TEXT_LENGTH_FOR_CONFIDENT_CLASSIFICATION) {
       score -= LOW_TEXT_DEDUCTION;
@@ -89,13 +92,25 @@ export class DocumentTextQualityService {
       score -= SPECIAL_CHARACTER_DEDUCTION;
       reasons.push('many-special-characters');
     }
-    if (shortDamagedTokenRatio > MAX_SHORT_DAMAGED_TOKEN_RATIO) {
+    if (metrics.suspiciousShortTokenRatio > MAX_SHORT_DAMAGED_TOKEN_RATIO) {
       score -= DAMAGED_TOKEN_DEDUCTION;
       reasons.push('many-short-damaged-tokens');
     }
-    if (suspiciousOcrTokenRatio > MAX_SUSPICIOUS_OCR_TOKEN_RATIO) {
+    if (metrics.suspiciousShortTokenRatio > MAX_SUSPICIOUS_OCR_TOKEN_RATIO) {
       score -= SUSPICIOUS_OCR_TOKEN_DEDUCTION;
       reasons.push('many-suspicious-ocr-tokens');
+    }
+    if (metrics.mixedScriptTokenRatio > MAX_MIXED_SCRIPT_TOKEN_RATIO) {
+      score -= MIXED_SCRIPT_TOKEN_DEDUCTION;
+      reasons.push('many-mixed-script-tokens');
+    }
+    if (metrics.symbolInsideWordRatio > MAX_SYMBOL_INSIDE_WORD_RATIO) {
+      score -= SYMBOL_INSIDE_WORD_DEDUCTION;
+      reasons.push('many-symbols-inside-words');
+    }
+    if (metrics.fragmentedWordRatio > MAX_FRAGMENTED_WORD_RATIO) {
+      score -= FRAGMENTED_WORD_DEDUCTION;
+      reasons.push('fragmented-ocr-text');
     }
 
     score = Math.max(1, score);
@@ -116,6 +131,9 @@ export class DocumentTextQualityService {
   ): TextQualityResult['metrics'] {
     const nonEmptyLines = text.split(/\r?\n/).filter((line) => line.trim());
     const tokens = text.split(/\s+/).filter(Boolean);
+    const wordTokens = tokens.filter(
+      (token) => /\p{L}/u.test(token) && !this.isProtectedIdentifier(token),
+    );
     const textLength = text.length;
 
     return {
@@ -136,6 +154,23 @@ export class DocumentTextQualityService {
       readableWordRatio: tokens.length
         ? tokens.filter((token) => /\p{L}/u.test(token)).length / tokens.length
         : 0,
+      mixedScriptTokenRatio: this.getTokenRatio(
+        wordTokens,
+        (token) =>
+          /\p{Script=Cyrillic}/u.test(token) && /\p{Script=Latin}/u.test(token),
+      ),
+      symbolInsideWordRatio: this.getTokenRatio(wordTokens, (token) =>
+        /\p{L}[^\p{L}\s'’\-–—]+\p{L}/u.test(token),
+      ),
+      suspiciousShortTokenRatio: this.getTokenRatio(
+        wordTokens,
+        (token) =>
+          [...token].length <= 8 &&
+          (/[\\/{}\[\]]/.test(token) ||
+            /\p{L}\d|\d\p{L}/u.test(token) ||
+            /[<>€ØÆ]/u.test(token)),
+      ),
+      fragmentedWordRatio: this.getFragmentedWordRatio(text),
     };
   }
 
@@ -146,32 +181,50 @@ export class DocumentTextQualityService {
   private getSpecialCharacterRatio(value: string): number {
     const nonWhitespaceCharacters = value.replace(/\s/g, '');
     return nonWhitespaceCharacters
-      ? (nonWhitespaceCharacters.match(
-          /[^\p{L}\p{N}.,;:!?()«»"'’\-–—]/gu,
-        )?.length ?? 0) /
-          nonWhitespaceCharacters.length
+      ? (nonWhitespaceCharacters.match(/[^\p{L}\p{N}.,;:!?()«»"'’\-–—]/gu)
+          ?.length ?? 0) / nonWhitespaceCharacters.length
       : 0;
   }
 
-  private getShortDamagedTokenRatio(tokens: string[]): number {
-    const words = tokens.filter((token) => /\p{L}/u.test(token));
-    return words.length
-      ? words.filter(
-          (token) =>
-            (/[\\/]/.test(token) || /\p{L}\d|\d\p{L}/u.test(token)) &&
-            [...token].length <= 8,
-        ).length / words.length
-      : 0;
+  private getTokenRatio(
+    tokens: string[],
+    predicate: (token: string) => boolean,
+  ): number {
+    return tokens.length ? tokens.filter(predicate).length / tokens.length : 0;
   }
 
-  private getSuspiciousOcrTokenRatio(tokens: string[]): number {
-    const words = tokens.filter((token) => /\p{L}/u.test(token));
-    return words.length
-      ? words.filter(
-          (token) =>
-            /\p{L}.*\d|\d.*\p{L}/u.test(token) ||
-            /[<>€ØÆ]/u.test(token),
-        ).length / words.length
-      : 0;
+  private getFragmentedWordRatio(text: string): number {
+    const sentences = text.split(/[.!?…]+/u);
+    let wordCount = 0;
+    let fragmentedWordCount = 0;
+
+    for (const sentence of sentences) {
+      const words = sentence.match(/\p{L}+/gu) ?? [];
+      wordCount += words.length;
+      fragmentedWordCount += words.filter((word, index) => {
+        if ([...word].length > 2) {
+          return false;
+        }
+
+        return Boolean(
+          (words[index - 1] && [...words[index - 1]].length <= 2) ||
+          (words[index + 1] && [...words[index + 1]].length <= 2),
+        );
+      }).length;
+    }
+
+    return wordCount ? fragmentedWordCount / wordCount : 0;
+  }
+
+  private isProtectedIdentifier(token: string): boolean {
+    const value = token.replace(/^[('"«]+|[)'"».,;:!?]+$/g, '');
+
+    return (
+      /^(?:https?:\/\/|www\.)/iu.test(value) ||
+      /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/u.test(value) ||
+      /^\d{10}(?:\d{2})?$/u.test(value) ||
+      /^\d+(?::\d+){2,}$/u.test(value) ||
+      /^(?:№|no\.?)[\s-]*[\p{L}\d][\p{L}\d./-]*$/iu.test(value)
+    );
   }
 }

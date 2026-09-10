@@ -91,6 +91,34 @@ describe('DocumentTextQualityService', () => {
     );
   });
 
+  it('marks the damaged first-document OCR fragment as poor', () => {
+    const text = Array.from(
+      { length: 12 },
+      () =>
+        'CTopoHa закJIюченного cy/-Ia I\\4акаrпевой ЛЪ2а-6 }lb н€tходящееся Туркестап',
+    ).join(' ');
+
+    const result = service.evaluate(text, 1);
+
+    expect(result).toMatchObject({
+      quality: 'poor',
+      requiresCloudRecognition: true,
+    });
+    expect(result.score).toBeLessThan(75);
+    expect(result.reasons).toEqual(
+      expect.arrayContaining([
+        'many-mixed-script-tokens',
+        'many-symbols-inside-words',
+      ]),
+    );
+    expect(result.metrics).toMatchObject({
+      mixedScriptTokenRatio: expect.any(Number),
+      symbolInsideWordRatio: expect.any(Number),
+      suspiciousShortTokenRatio: expect.any(Number),
+      fragmentedWordRatio: expect.any(Number),
+    });
+  });
+
   it('does not send a good document for cloud recognition', () => {
     const result = service.evaluate(
       'Договор купли-продажи имущества заключён в соответствии с законодательством. '.repeat(
