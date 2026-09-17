@@ -29,6 +29,7 @@ const document: DownloadedDocument = {
   contentType: 'application/pdf',
   sizeBytes: 10,
   buffer: Buffer.from('%PDF-1.7'),
+  sha256: 'a'.repeat(64),
 };
 
 describe('PdfTextExtractorService', () => {
@@ -50,6 +51,8 @@ describe('PdfTextExtractorService', () => {
       sourceFileId: 'test-file',
       contentType: 'application/pdf',
       sizeBytes: 10,
+      sha256: 'a'.repeat(64),
+      isDuplicate: false,
       pageCount: 2,
       text: 'x'.repeat(1001),
       preview: 'x'.repeat(1000),

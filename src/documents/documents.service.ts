@@ -14,6 +14,7 @@ export class DocumentsService {
 
   async processLotDocuments(lot: SaudaLot): Promise<ExtractedDocument[]> {
     const extracted: ExtractedDocument[] = [];
+    const originalsBySha256 = new Map<string, ExtractedDocument>();
 
     for (const document of lot.documents) {
       try {
@@ -21,7 +22,30 @@ export class DocumentsService {
           document.title,
           document.url,
         );
-        extracted.push(await this.extractor.extract(downloaded));
+        const original = originalsBySha256.get(downloaded.sha256);
+        if (original) {
+          extracted.push({
+            title: document.title,
+            ...this.getSourceFileId(document.url),
+            contentType: downloaded.contentType,
+            sizeBytes: downloaded.sizeBytes,
+            status: 'duplicate',
+            sha256: downloaded.sha256,
+            duplicateOfSha256: downloaded.sha256,
+            isDuplicate: true,
+            text: '',
+            preview: '',
+            quality: original.quality,
+            qualityScore: original.qualityScore,
+            qualityReasons: original.qualityReasons,
+            requiresCloudRecognition: false,
+          });
+          continue;
+        }
+
+        const result = await this.extractor.extract(downloaded);
+        originalsBySha256.set(downloaded.sha256, result);
+        extracted.push(result);
       } catch (error) {
         const unsupportedDetails =
           error instanceof UnsupportedDocumentTypeError
@@ -38,6 +62,7 @@ export class DocumentsService {
           ...unsupportedDetails,
           text: '',
           preview: '',
+          isDuplicate: false,
           quality: 'unknown',
           qualityScore: 0,
           qualityReasons: ['text-extraction-did-not-run'],

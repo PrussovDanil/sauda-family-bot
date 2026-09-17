@@ -34,6 +34,38 @@ describe('DocumentDownloaderService', () => {
     });
   });
 
+  it('calculates the same SHA-256 for identical buffers', async () => {
+    const content = Buffer.from('%PDF-identical');
+    fetchMock.mockResolvedValueOnce(
+      new Response(content, { headers: { 'content-type': 'application/pdf' } }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(content, { headers: { 'content-type': 'application/pdf' } }),
+    );
+    const first = await service.download('first.pdf', DOCUMENT_URL);
+    const second = await service.download('second.pdf', DOCUMENT_URL);
+
+    expect(first.sha256).toBe(second.sha256);
+  });
+
+  it('calculates different SHA-256 values for different buffers', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(Buffer.from('%PDF-first'), {
+        headers: { 'content-type': 'application/pdf' },
+      }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(Buffer.from('%PDF-second'), {
+        headers: { 'content-type': 'application/pdf' },
+      }),
+    );
+
+    const first = await service.download('first.pdf', DOCUMENT_URL);
+    const second = await service.download('second.pdf', DOCUMENT_URL);
+
+    expect(first.sha256).not.toBe(second.sha256);
+  });
+
   it('accepts octet-stream only when the PDF signature is present', async () => {
     fetchMock.mockResolvedValue(
       new Response(Buffer.from('%PDF-1.7'), {

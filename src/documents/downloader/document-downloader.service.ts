@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { DocumentDownloadError } from '../errors/document-download.error';
 import { DocumentTooLargeError } from '../errors/document-too-large.error';
 import { UnsafeDocumentUrlError } from '../errors/unsafe-document-url.error';
@@ -55,6 +56,7 @@ export class DocumentDownloaderService {
         contentType,
         sizeBytes: buffer.length,
         buffer,
+        sha256: createHash('sha256').update(buffer).digest('hex'),
       };
     }
 

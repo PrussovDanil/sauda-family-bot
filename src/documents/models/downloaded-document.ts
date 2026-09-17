@@ -5,4 +5,5 @@ export interface DownloadedDocument {
   contentType: string;
   sizeBytes: number;
   buffer: Buffer;
+  sha256: string;
 }

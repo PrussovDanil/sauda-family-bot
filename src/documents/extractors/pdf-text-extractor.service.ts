@@ -44,6 +44,8 @@ export class PdfTextExtractorService {
         ...(sourceFileId ? { sourceFileId } : {}),
         contentType: document.contentType,
         sizeBytes: document.sizeBytes,
+        sha256: document.sha256,
+        isDuplicate: false,
         pageCount: result.total,
         text,
         preview: text.slice(0, PREVIEW_LENGTH),

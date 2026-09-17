@@ -20,7 +20,9 @@ async function bootstrap(): Promise<void> {
     const lot = await saudaService.getLot(lotNumber);
     console.log(`Found documents: ${lot.documents.length}`);
 
-    for (const document of await documentsService.processLotDocuments(lot)) {
+    const documents = await documentsService.processLotDocuments(lot);
+
+    for (const document of documents) {
       console.log(
         JSON.stringify(
           {
@@ -30,6 +32,11 @@ async function bootstrap(): Promise<void> {
             sizeBytes: document.sizeBytes,
             pageCount: document.pageCount,
             status: document.status,
+            ...(document.sha256 ? { sha256: document.sha256.slice(0, 12) } : {}),
+            isDuplicate: document.isDuplicate,
+            ...(document.duplicateOfSha256
+              ? { duplicateOf: document.duplicateOfSha256.slice(0, 12) }
+              : {}),
             quality: document.quality,
             qualityScore: document.qualityScore,
             qualityReasons: document.qualityReasons,
@@ -42,6 +49,19 @@ async function bootstrap(): Promise<void> {
         ),
       );
     }
+
+    console.log(
+      JSON.stringify({
+        documentsFound: documents.length,
+        uniqueDocuments: documents.filter((document) => !document.isDuplicate)
+          .length,
+        duplicateDocuments: documents.filter((document) => document.isDuplicate)
+          .length,
+        requiresCloudRecognition: documents.filter(
+          (document) => document.requiresCloudRecognition,
+        ).length,
+      }),
+    );
   } finally {
     await applicationContext.close();
   }
