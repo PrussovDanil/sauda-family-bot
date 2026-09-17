@@ -17,6 +17,7 @@
     "sauda:resolve": "NODE_EXTRA_CA_CERTS=./.certs/ssl-com-tls-issuing-rsa-ca-r1.pem ts-node --transpile-only src/sauda/cli/sauda-resolve.cli.ts",
     "sauda:lot": "NODE_EXTRA_CA_CERTS=./.certs/ssl-com-tls-issuing-rsa-ca-r1.pem ts-node --transpile-only src/sauda/cli/sauda-lot.cli.ts",
     "sauda:documents": "NODE_EXTRA_CA_CERTS=./.certs/ssl-com-tls-issuing-rsa-ca-r1.pem ts-node --transpile-only src/cli/sauda-documents.cli.ts",
+    "sauda:store": "NODE_EXTRA_CA_CERTS=./.certs/ssl-com-tls-issuing-rsa-ca-r1.pem ts-node --transpile-only src/cli/sauda-store.cli.ts",
     "lint": "oxlint src/ test/",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:watch": "jest --watch",
