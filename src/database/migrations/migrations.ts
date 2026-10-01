@@ -85,4 +85,19 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 4,
+    name: 'create-cloud-analysis-cache',
+    up(database) {
+      database.exec(`
+        CREATE TABLE cloud_analysis_cache (
+          cache_key TEXT PRIMARY KEY,
+          model TEXT NOT NULL,
+          prompt_version TEXT NOT NULL,
+          result_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+      `);
+    },
+  },
 ];
