@@ -1,6 +1,7 @@
 export interface Money {
   amount: string;
   currency: 'KZT';
+  sourceRaw: string;
 }
 
 export interface LotDocument {
@@ -11,9 +12,7 @@ export interface LotDocument {
 
 export function redactDocumentUrl(value: string): string {
   const url = new URL(value);
-  return url
-    .toString()
-    .replace(/([?&]Token=)[^&#]*/i, '$1[REDACTED]');
+  return url.toString().replace(/([?&]Token=)[^&#]*/i, '$1[REDACTED]');
 }
 
 export interface SaudaLot {

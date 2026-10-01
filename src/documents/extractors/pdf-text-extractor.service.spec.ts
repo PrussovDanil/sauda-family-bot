@@ -1,7 +1,10 @@
 import { jest } from '@jest/globals';
 import type { DownloadedDocument } from '../models/downloaded-document';
 import { DocumentTextQualityService } from '../quality/document-text-quality.service';
-import { normalizePdfText, PdfTextExtractorService } from './pdf-text-extractor.service';
+import {
+  normalizePdfText,
+  PdfTextExtractorService,
+} from './pdf-text-extractor.service';
 
 class TestPdfTextExtractorService extends PdfTextExtractorService {
   constructor(
@@ -40,7 +43,7 @@ describe('PdfTextExtractorService', () => {
   });
 
   it('returns text, page count, and a bounded preview', async () => {
-    const destroy = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const destroy = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
     const extractor = new TestPdfTextExtractorService({
       destroy,
       getText: async () => ({ text: 'x'.repeat(1001), total: 2 }),
@@ -77,6 +80,36 @@ describe('PdfTextExtractorService', () => {
       text: '',
       quality: 'empty',
       requiresCloudRecognition: true,
+    });
+  });
+
+  it('classifies encrypted PDFs without exposing parser details', async () => {
+    const parserError = new Error('No password given: secret parser details');
+    parserError.name = 'PasswordException';
+    const extractor = new TestPdfTextExtractorService({
+      destroy: async () => Promise.reject(new Error('cleanup failed')),
+      getText: async () => Promise.reject(parserError),
+    });
+
+    await expect(extractor.extract(document)).rejects.toMatchObject({
+      failureKind: 'encrypted',
+      message: 'PDF is encrypted and cannot be processed',
+      retryable: false,
+    });
+  });
+
+  it('classifies malformed or truncated PDFs', async () => {
+    const parserError = new Error('Invalid PDF structure: truncated xref');
+    parserError.name = 'InvalidPDFException';
+    const extractor = new TestPdfTextExtractorService({
+      destroy: async () => undefined,
+      getText: async () => Promise.reject(parserError),
+    });
+
+    await expect(extractor.extract(document)).rejects.toMatchObject({
+      failureKind: 'malformed',
+      message: 'PDF is malformed or truncated',
+      retryable: false,
     });
   });
 });

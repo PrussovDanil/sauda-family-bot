@@ -9,8 +9,16 @@ function createLot(overrides: Partial<SaudaLot> = {}): SaudaLot {
     publicationId: 'publication-460260',
     url: 'https://sauda.e-qazyna.kz/lot?Token=secret-token',
     title: 'Lot title',
-    startingPrice: { amount: '1234567890.12', currency: 'KZT' },
-    deposit: { amount: '100.50', currency: 'KZT' },
+    startingPrice: {
+      amount: '1234567890.12',
+      currency: 'KZT',
+      sourceRaw: '₸ 1 234 567 890,12',
+    },
+    deposit: {
+      amount: '100.50',
+      currency: 'KZT',
+      sourceRaw: '100,50 ₸',
+    },
     documents: [],
     parsedAt: '2026-09-17T00:00:00.000Z',
     ...overrides,
@@ -36,30 +44,40 @@ describe('LotRepository', () => {
     const migrations = database.connection
       .prepare('SELECT COUNT(*) AS count FROM schema_migrations')
       .get() as { count: number };
-    expect(migrations.count).toBe(1);
+    expect(migrations.count).toBe(3);
   });
 
   it('stores money as strings and removes Token from the stored URL', () => {
     const stored = repository.upsertLot(createLot());
     const row = database.connection
       .prepare(
-        'SELECT starting_price_amount, deposit_amount, url FROM lots WHERE id = ?',
+        `
+        SELECT starting_price_amount, starting_price_raw,
+               deposit_amount, deposit_raw, url
+        FROM lots WHERE id = ?
+      `,
       )
       .get(stored.id) as {
       starting_price_amount: string;
+      starting_price_raw: string;
       deposit_amount: string;
+      deposit_raw: string;
       url: string;
     };
 
     expect(row.starting_price_amount).toBe('1234567890.12');
+    expect(row.starting_price_raw).toBe('₸ 1 234 567 890,12');
     expect(row.deposit_amount).toBe('100.50');
+    expect(row.deposit_raw).toBe('100,50 ₸');
     expect(row.url).not.toContain('secret-token');
     expect(row.url).not.toContain('Token=');
   });
 
   it('updates an existing lot without changing its identity', () => {
     const first = repository.upsertLot(createLot());
-    const updated = repository.upsertLot(createLot({ title: 'Updated lot title' }));
+    const updated = repository.upsertLot(
+      createLot({ title: 'Updated lot title' }),
+    );
 
     expect(updated.id).toBe(first.id);
     expect(repository.findByPublicationId('publication-460260')).toMatchObject({
@@ -74,7 +92,9 @@ describe('LotRepository', () => {
 
     expect(() =>
       database.connection
-        .prepare('INSERT INTO lots (publication_id, lot_number, url, title, parsed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .prepare(
+          'INSERT INTO lots (publication_id, lot_number, url, title, parsed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
         .run(
           'publication-460260',
           'another',

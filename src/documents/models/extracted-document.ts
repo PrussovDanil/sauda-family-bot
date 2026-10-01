@@ -1,9 +1,17 @@
 export type ExtractionStatus =
-  | 'success'
-  | 'empty'
-  | 'unsupported'
-  | 'failed'
-  | 'duplicate';
+  'success' | 'empty' | 'unsupported' | 'failed' | 'duplicate';
+
+export type DocumentFailureKind =
+  | 'timeout'
+  | 'network'
+  | 'http'
+  | 'response'
+  | 'content'
+  | 'encrypted'
+  | 'malformed'
+  | 'extraction';
+
+export const PDF_EXTRACTION_CACHE_VERSION = 'pdf-text-v1';
 
 export interface ExtractedDocument {
   title: string;
@@ -21,5 +29,13 @@ export interface ExtractedDocument {
   qualityScore: number;
   qualityReasons: string[];
   requiresCloudRecognition: boolean;
+  failureKind?: DocumentFailureKind;
+  retryable?: boolean;
   error?: string;
+  extractionCacheVersion?: string;
 }
+
+export type DocumentExtractionSnapshot = Omit<
+  ExtractedDocument,
+  'title' | 'sourceFileId' | 'duplicateOfSha256' | 'isDuplicate'
+>;

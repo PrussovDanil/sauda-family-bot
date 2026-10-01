@@ -21,13 +21,14 @@ export class LotRepository {
   upsertLot(lot: SaudaLot): StoredLot {
     const now = new Date().toISOString();
     this.databaseService.connection
-      .prepare(`
+      .prepare(
+        `
         INSERT INTO lots (
           publication_id, lot_number, url, title, auction_type, status,
-          starting_price_amount, starting_price_currency, deposit_amount,
-          deposit_currency, auction_starts_at_raw, description, address, seller,
-          parsed_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          starting_price_amount, starting_price_currency, starting_price_raw,
+          deposit_amount, deposit_currency, deposit_raw, auction_starts_at_raw,
+          description, address, seller, parsed_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(publication_id) DO UPDATE SET
           lot_number = excluded.lot_number,
           url = excluded.url,
@@ -36,15 +37,18 @@ export class LotRepository {
           status = excluded.status,
           starting_price_amount = excluded.starting_price_amount,
           starting_price_currency = excluded.starting_price_currency,
+          starting_price_raw = excluded.starting_price_raw,
           deposit_amount = excluded.deposit_amount,
           deposit_currency = excluded.deposit_currency,
+          deposit_raw = excluded.deposit_raw,
           auction_starts_at_raw = excluded.auction_starts_at_raw,
           description = excluded.description,
           address = excluded.address,
           seller = excluded.seller,
           parsed_at = excluded.parsed_at,
           updated_at = excluded.updated_at
-      `)
+      `,
+      )
       .run(
         lot.publicationId,
         lot.lotNumber,
@@ -54,8 +58,10 @@ export class LotRepository {
         lot.status ?? null,
         lot.startingPrice?.amount ?? null,
         lot.startingPrice?.currency ?? null,
+        lot.startingPrice?.sourceRaw ?? null,
         lot.deposit?.amount ?? null,
         lot.deposit?.currency ?? null,
+        lot.deposit?.sourceRaw ?? null,
         lot.auctionStartsAtRaw ?? null,
         lot.description ?? null,
         lot.address ?? null,

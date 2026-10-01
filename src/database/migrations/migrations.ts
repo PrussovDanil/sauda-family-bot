@@ -63,4 +63,26 @@ export const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 2,
+    name: 'add-document-extraction-cache-metadata',
+    up(database) {
+      database.exec(`
+        ALTER TABLE documents ADD COLUMN extraction_cache_version TEXT;
+        ALTER TABLE documents ADD COLUMN failure_kind TEXT;
+        ALTER TABLE documents ADD COLUMN retryable INTEGER;
+        ALTER TABLE documents ADD COLUMN error_message TEXT;
+      `);
+    },
+  },
+  {
+    version: 3,
+    name: 'add-lot-money-source-values',
+    up(database) {
+      database.exec(`
+        ALTER TABLE lots ADD COLUMN starting_price_raw TEXT;
+        ALTER TABLE lots ADD COLUMN deposit_raw TEXT;
+      `);
+    },
+  },
 ];

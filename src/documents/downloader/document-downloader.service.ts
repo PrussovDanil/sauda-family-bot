@@ -21,32 +21,48 @@ export class DocumentDownloaderService {
   ): Promise<DownloadedDocument> {
     let currentUrl = this.assertSafeUrl(sourceUrl);
 
-    for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
+    for (
+      let redirectCount = 0;
+      redirectCount <= MAX_REDIRECTS;
+      redirectCount++
+    ) {
       const response = await this.fetchWithTimeout(currentUrl);
 
       if (this.isRedirect(response.status)) {
         if (redirectCount === MAX_REDIRECTS) {
-          throw new DocumentDownloadError('Document redirect limit exceeded');
+          throw new DocumentDownloadError(
+            'Document redirect limit exceeded',
+            'response',
+          );
         }
 
         const location = response.headers.get('location');
         if (!location) {
-          throw new DocumentDownloadError('Document redirect has no location');
+          throw new DocumentDownloadError(
+            'Document redirect has no location',
+            'response',
+          );
         }
 
-        currentUrl = this.assertSafeUrl(new URL(location, currentUrl).toString());
+        currentUrl = this.assertSafeUrl(
+          new URL(location, currentUrl).toString(),
+        );
         continue;
       }
 
       if (!response.ok) {
         throw new DocumentDownloadError(
           `Document download failed with HTTP ${response.status}`,
+          'http',
+          this.isRetryableHttpStatus(response.status),
         );
       }
 
       this.assertContentLength(response.headers.get('content-length'));
       const buffer = await this.readBody(response);
-      const contentType = this.getContentType(response.headers.get('content-type'));
+      const contentType = this.getContentType(
+        response.headers.get('content-type'),
+      );
       this.assertPdf(contentType, buffer);
 
       return {
@@ -93,7 +109,28 @@ export class DocumentDownloaderService {
         signal: controller.signal,
       });
     } catch (error) {
-      throw new DocumentDownloadError('Document request failed', error);
+      const errorName =
+        typeof error === 'object' &&
+        error !== null &&
+        'name' in error &&
+        typeof error.name === 'string'
+          ? error.name
+          : undefined;
+      if (controller.signal.aborted || errorName === 'AbortError') {
+        throw new DocumentDownloadError(
+          'Document request timed out',
+          'timeout',
+          true,
+          error,
+        );
+      }
+
+      throw new DocumentDownloadError(
+        'Document network request failed',
+        'network',
+        true,
+        error,
+      );
     } finally {
       clearTimeout(timeout);
     }
@@ -106,7 +143,10 @@ export class DocumentDownloaderService {
 
     const size = Number(contentLength);
     if (!Number.isSafeInteger(size) || size < 0) {
-      throw new DocumentDownloadError('Document has an invalid Content-Length');
+      throw new DocumentDownloadError(
+        'Document has an invalid Content-Length',
+        'response',
+      );
     }
     if (size > MAX_DOCUMENT_SIZE_BYTES) {
       throw new DocumentTooLargeError();
@@ -115,7 +155,10 @@ export class DocumentDownloaderService {
 
   private async readBody(response: Response): Promise<Buffer> {
     if (!response.body) {
-      throw new DocumentDownloadError('Document response has no body');
+      throw new DocumentDownloadError(
+        'Document response has no body',
+        'response',
+      );
     }
 
     const reader = response.body.getReader();
@@ -140,12 +183,20 @@ export class DocumentDownloaderService {
       if (error instanceof DocumentTooLargeError) {
         throw error;
       }
-      throw new DocumentDownloadError('Document response stream failed', error);
+      throw new DocumentDownloadError(
+        'Document response stream failed',
+        'network',
+        true,
+        error,
+      );
     } finally {
       reader.releaseLock();
     }
 
-    return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), sizeBytes);
+    return Buffer.concat(
+      chunks.map((chunk) => Buffer.from(chunk)),
+      sizeBytes,
+    );
   }
 
   private getContentType(contentType: string | null): string {
@@ -153,21 +204,32 @@ export class DocumentDownloaderService {
   }
 
   private assertPdf(contentType: string, buffer: Buffer): void {
-    if (contentType === PDF_CONTENT_TYPE) {
-      return;
-    }
-    if (
-      (contentType === OCTET_STREAM_CONTENT_TYPE ||
-        contentType === LEGACY_OCTET_STREAM_CONTENT_TYPE) &&
-      buffer.subarray(0, 5).toString('ascii') === '%PDF-'
-    ) {
-      return;
+    const isAllowedContentType =
+      contentType === PDF_CONTENT_TYPE ||
+      contentType === OCTET_STREAM_CONTENT_TYPE ||
+      contentType === LEGACY_OCTET_STREAM_CONTENT_TYPE;
+    if (!isAllowedContentType) {
+      throw new UnsupportedDocumentTypeError(
+        contentType,
+        buffer.length,
+        'content-type',
+      );
     }
 
-    throw new UnsupportedDocumentTypeError(contentType, buffer.length);
+    if (buffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+      throw new UnsupportedDocumentTypeError(
+        contentType,
+        buffer.length,
+        'signature',
+      );
+    }
   }
 
   private isRedirect(status: number): boolean {
     return status >= 300 && status < 400;
+  }
+
+  private isRetryableHttpStatus(status: number): boolean {
+    return status === 408 || status === 425 || status === 429 || status >= 500;
   }
 }

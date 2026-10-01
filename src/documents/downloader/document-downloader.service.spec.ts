@@ -26,11 +26,28 @@ describe('DocumentDownloaderService', () => {
       }),
     );
 
-    await expect(service.download('document.pdf', DOCUMENT_URL)).resolves.toMatchObject({
+    await expect(
+      service.download('document.pdf', DOCUMENT_URL),
+    ).resolves.toMatchObject({
       contentType: 'application/pdf',
       finalUrl: DOCUMENT_URL,
       sizeBytes: 8,
       title: 'document.pdf',
+    });
+  });
+
+  it('rejects application/pdf when the PDF signature is missing', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(Buffer.from('<html>not a PDF</html>'), {
+        headers: { 'content-type': 'application/pdf' },
+      }),
+    );
+
+    await expect(
+      service.download('document.pdf', DOCUMENT_URL),
+    ).rejects.toMatchObject({
+      failureKind: 'content',
+      reason: 'signature',
     });
   });
 
@@ -73,7 +90,9 @@ describe('DocumentDownloaderService', () => {
       }),
     );
 
-    await expect(service.download('document.bin', DOCUMENT_URL)).resolves.toMatchObject({
+    await expect(
+      service.download('document.bin', DOCUMENT_URL),
+    ).resolves.toMatchObject({
       contentType: 'application/octet-stream',
     });
   });
@@ -85,7 +104,9 @@ describe('DocumentDownloaderService', () => {
       }),
     );
 
-    await expect(service.download('document.bin', DOCUMENT_URL)).resolves.toMatchObject({
+    await expect(
+      service.download('document.bin', DOCUMENT_URL),
+    ).resolves.toMatchObject({
       contentType: 'octet/stream',
     });
   });
@@ -97,9 +118,9 @@ describe('DocumentDownloaderService', () => {
       }),
     );
 
-    await expect(service.download('document.bin', DOCUMENT_URL)).rejects.toBeInstanceOf(
-      UnsupportedDocumentTypeError,
-    );
+    await expect(
+      service.download('document.bin', DOCUMENT_URL),
+    ).rejects.toBeInstanceOf(UnsupportedDocumentTypeError);
   });
 
   it('rejects unsafe URLs before making a request', async () => {
@@ -116,9 +137,9 @@ describe('DocumentDownloaderService', () => {
       }),
     );
 
-    await expect(service.download('document.pdf', DOCUMENT_URL)).rejects.toBeInstanceOf(
-      DocumentTooLargeError,
-    );
+    await expect(
+      service.download('document.pdf', DOCUMENT_URL),
+    ).rejects.toBeInstanceOf(DocumentTooLargeError);
   });
 
   it('stops a streamed response that exceeds the size limit without Content-Length', async () => {
@@ -134,9 +155,9 @@ describe('DocumentDownloaderService', () => {
       }),
     );
 
-    await expect(service.download('document.pdf', DOCUMENT_URL)).rejects.toBeInstanceOf(
-      DocumentTooLargeError,
-    );
+    await expect(
+      service.download('document.pdf', DOCUMENT_URL),
+    ).rejects.toBeInstanceOf(DocumentTooLargeError);
   });
 
   it('validates every redirect destination', async () => {
@@ -147,8 +168,43 @@ describe('DocumentDownloaderService', () => {
       }),
     );
 
-    await expect(service.download('document.pdf', DOCUMENT_URL)).rejects.toBeInstanceOf(
-      UnsafeDocumentUrlError,
+    await expect(
+      service.download('document.pdf', DOCUMENT_URL),
+    ).rejects.toBeInstanceOf(UnsafeDocumentUrlError);
+  });
+
+  it('distinguishes timeout failures as retryable', async () => {
+    fetchMock.mockRejectedValue(
+      new DOMException('Request aborted', 'AbortError'),
     );
+
+    await expect(
+      service.download('document.pdf', DOCUMENT_URL),
+    ).rejects.toMatchObject({
+      failureKind: 'timeout',
+      retryable: true,
+    });
+  });
+
+  it('distinguishes network failures as retryable', async () => {
+    fetchMock.mockRejectedValue(new TypeError('socket closed'));
+
+    await expect(
+      service.download('document.pdf', DOCUMENT_URL),
+    ).rejects.toMatchObject({
+      failureKind: 'network',
+      retryable: true,
+    });
+  });
+
+  it('distinguishes HTTP failures and marks server errors as retryable', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
+
+    await expect(
+      service.download('document.pdf', DOCUMENT_URL),
+    ).rejects.toMatchObject({
+      failureKind: 'http',
+      retryable: true,
+    });
   });
 });

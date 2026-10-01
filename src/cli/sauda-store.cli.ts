@@ -1,8 +1,7 @@
 import { NestFactory } from '@nestjs/core';
-import { DatabaseModule } from '../database/database.module';
-import { PersistenceService } from '../database/persistence.service';
-import { DocumentsService } from '../documents/documents.service';
-import { SaudaService } from '../sauda/sauda.service';
+import { IngestionModule } from '../ingestion/ingestion.module';
+import { IngestionService } from '../ingestion/ingestion.service';
+import { createStoreOutput, getStoreExitCode } from './sauda-store-output';
 
 async function bootstrap(): Promise<void> {
   const lotNumber = process.argv[2];
@@ -11,29 +10,16 @@ async function bootstrap(): Promise<void> {
   }
 
   const applicationContext = await NestFactory.createApplicationContext(
-    DatabaseModule,
+    IngestionModule,
     { logger: false },
   );
 
   try {
-    const saudaService = applicationContext.get(SaudaService);
-    const documentsService = applicationContext.get(DocumentsService);
-    const persistenceService = applicationContext.get(PersistenceService);
-    const lot = await saudaService.getLot(lotNumber);
-    const documents = await documentsService.processLotDocuments(lot);
-    const result = persistenceService.saveLotAnalysis(lot, documents);
+    const ingestionService = applicationContext.get(IngestionService);
+    const { lot, result } = await ingestionService.ingestLot(lotNumber);
 
-    console.log(
-      JSON.stringify({
-        lotNumber: lot.lotNumber,
-        publicationId: lot.publicationId,
-        lotId: result.lotId,
-        documentsFound: result.documentsFound,
-        uniqueDocuments: result.uniqueDocuments,
-        newDocuments: result.newDocuments,
-        reusedDocuments: result.reusedDocuments,
-      }),
-    );
+    console.log(JSON.stringify(createStoreOutput(lot, result)));
+    process.exitCode = getStoreExitCode(result);
   } finally {
     await applicationContext.close();
   }

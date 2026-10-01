@@ -1,7 +1,12 @@
+import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentsModule } from '../documents/documents.module';
 import { DocumentsService } from '../documents/documents.service';
+import { SaudaModule } from '../sauda/sauda.module';
 import { SaudaService } from '../sauda/sauda.service';
+
+@Module({ imports: [SaudaModule, DocumentsModule] })
+class SaudaDocumentsCliModule {}
 
 async function bootstrap(): Promise<void> {
   const lotNumber = process.argv[2];
@@ -10,7 +15,7 @@ async function bootstrap(): Promise<void> {
   }
 
   const applicationContext = await NestFactory.createApplicationContext(
-    DocumentsModule,
+    SaudaDocumentsCliModule,
     { logger: false },
   );
 
@@ -32,7 +37,9 @@ async function bootstrap(): Promise<void> {
             sizeBytes: document.sizeBytes,
             pageCount: document.pageCount,
             status: document.status,
-            ...(document.sha256 ? { sha256: document.sha256.slice(0, 12) } : {}),
+            ...(document.sha256
+              ? { sha256: document.sha256.slice(0, 12) }
+              : {}),
             isDuplicate: document.isDuplicate,
             ...(document.duplicateOfSha256
               ? { duplicateOf: document.duplicateOfSha256.slice(0, 12) }
@@ -68,6 +75,8 @@ async function bootstrap(): Promise<void> {
 }
 
 bootstrap().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : 'Document processing failed');
+  console.error(
+    error instanceof Error ? error.message : 'Document processing failed',
+  );
   process.exitCode = 1;
 });
