@@ -99,9 +99,13 @@ export class AnalysisService {
     try {
       analysis = cloudAnalysisSchema.parse(JSON.parse(outputText));
     } catch (error) {
-      throw new CloudAnalysisError('Cloud analysis returned invalid data', false, {
-        cause: error,
-      });
+      throw new CloudAnalysisError(
+        'Cloud analysis returned invalid data',
+        false,
+        {
+          cause: error,
+        },
+      );
     }
 
     this.repository.save(
@@ -131,22 +135,22 @@ export class AnalysisService {
         continue;
       }
       sections.push(
-        `Документ ${index + 1}: ${document.sourceTitle}\n${text.slice(0, MAX_DOCUMENT_CHARS)}`,
+        `Документ ${index + 1}: ${document.title}\n${text.slice(0, MAX_DOCUMENT_CHARS)}`,
       );
     }
 
     return sections.join('\n\n').slice(0, MAX_INPUT_CHARS);
   }
 
-  private createCacheKey(
-    ingestion: LotIngestionResult,
-    model: string,
-  ): string {
+  private createCacheKey(ingestion: LotIngestionResult, model: string): string {
     const identity = {
       promptVersion: PROMPT_VERSION,
       model,
       publicationId: ingestion.lot.publicationId,
-      lotParsedAt: ingestion.lot.parsedAt,
+      title: ingestion.lot.title,
+      status: ingestion.lot.status,
+      startingPrice: ingestion.lot.startingPrice?.amount,
+      auctionStartsAtRaw: ingestion.lot.auctionStartsAtRaw,
       documents: ingestion.documents.map((document) => ({
         sha256: document.sha256,
         status: document.status,

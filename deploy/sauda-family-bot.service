@@ -1,0 +1,23 @@
+[Unit]
+Description=Sauda Family Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sauda-bot
+Group=sauda-bot
+WorkingDirectory=/opt/sauda-family-bot
+EnvironmentFile=/opt/sauda-family-bot/.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env pnpm start:prod
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sauda-family-bot/data
+
+[Install]
+WantedBy=multi-user.target

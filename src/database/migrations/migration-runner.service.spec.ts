@@ -2,7 +2,7 @@ import { DatabaseService } from '../database.service';
 import { MigrationRunnerService } from './migration-runner.service';
 import { migrations } from './migrations';
 
-function createDatabaseAtVersion(version: 1 | 2): DatabaseService {
+function createDatabaseAtVersion(version: 1 | 2 | 3): DatabaseService {
   const database = new DatabaseService(':memory:');
   database.onModuleInit();
   database.connection.exec(`
@@ -71,7 +71,7 @@ function readMoneyColumns(database: DatabaseService): string[] {
 }
 
 describe('MigrationRunnerService', () => {
-  it.each([1, 2] as const)(
+  it.each([1, 2, 3] as const)(
     'upgrades an existing version %s database without losing old rows',
     (version) => {
       const database = createDatabaseAtVersion(version);
@@ -107,7 +107,19 @@ describe('MigrationRunnerService', () => {
         database.connection
           .prepare('SELECT version FROM schema_migrations ORDER BY version')
           .all(),
-      ).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }]);
+      ).toEqual([
+        { version: 1 },
+        { version: 2 },
+        { version: 3 },
+        { version: 4 },
+      ]);
+      expect(
+        database.connection
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cloud_analysis_cache'",
+          )
+          .get(),
+      ).toEqual({ name: 'cloud_analysis_cache' });
       database.onModuleDestroy();
     },
   );

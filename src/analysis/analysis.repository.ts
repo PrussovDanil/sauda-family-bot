@@ -29,6 +29,12 @@ export class AnalysisRepository {
           result_json = excluded.result_json,
           created_at = excluded.created_at`,
       )
-      .run(cacheKey, model, promptVersion, resultJson, new Date().toISOString());
+      .run(
+        cacheKey,
+        model,
+        promptVersion,
+        resultJson,
+        new Date().toISOString(),
+      );
   }
 }

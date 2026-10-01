@@ -1,114 +1,112 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Sauda Family Bot
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Telegram-бот для поиска лотов Sauda E-Qazyna, загрузки PDF-документов,
+извлечения текста и сохранения проверенных данных в SQLite.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Возможности
 
-## Description
+- поиск лота по номеру и строгий разбор актуальной страницы Sauda;
+- безопасная загрузка PDF с проверкой домена, размера и сигнатуры;
+- извлечение текста, оценка качества и дедупликация по SHA-256;
+- транзакционное сохранение лотов и документов в SQLite;
+- Telegram long polling с allowlist и защитой от повторных запросов;
+- опциональный структурированный анализ через OpenAI Responses API.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Установка
 
-## Project setup
+Требуются Node.js 24 и pnpm 10.
 
 ```bash
-$ pnpm install
+pnpm install
+cp .env.example .env
 ```
 
-## Compile and run the project
+Заполните `.env`:
+
+- `TELEGRAM_BOT_TOKEN` — токен от BotFather;
+- `TELEGRAM_ALLOWED_USER_IDS` — разрешённые Telegram ID через запятую;
+- `SQLITE_DATABASE_PATH` — путь к SQLite;
+- переменные `OPENAI_*` — только если нужен облачный анализ.
+
+Если Telegram ID неизвестен, запустите бота и отправьте `/id`. Эта команда
+доступна до настройки allowlist. Добавьте полученный ID в
+`TELEGRAM_ALLOWED_USER_IDS` и перезапустите процесс.
+
+Проект использует дополнительный CA-файл
+`.certs/ssl-com-tls-issuing-rsa-ca-r1.pem`. Он локальный и не коммитится.
+
+## Запуск
 
 ```bash
-# development
-$ pnpm run start
-
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
+pnpm start
 ```
 
-## Run tests
+Отправьте боту номер лота обычным сообщением. Бот сначала сообщит о начале
+обработки, затем вернёт факты и статистику документов.
+
+Облачный анализ запускается отдельно:
+
+```text
+/analyze 463354
+```
+
+Он отключён по умолчанию. Для включения задайте API-ключ, модель и
+`OPENAI_ANALYSIS_ENABLED=true`. В OpenAI отправляется только ограниченный набор
+фактов и извлечённого текста без URL с токенами. Запросы выполняются через
+Responses API со `store: false` и Structured Outputs; результаты кэшируются в
+локальной SQLite. См. [официальную документацию OpenAI](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+## CLI
 
 ```bash
-# unit tests
-$ pnpm run test
-
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
+pnpm sauda:resolve 463354
+pnpm sauda:lot 463354
+pnpm sauda:documents 463354
+pnpm sauda:store 463354
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## Проверки
 
 ```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+pnpm typecheck
+pnpm lint
+pnpm test --runInBand
+pnpm test:e2e --runInBand
+pnpm build
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Unit-тесты парсеров используют сохранённые HTML fixtures и не обращаются к
+живому Sauda.
 
-## Observability
+## Постоянный запуск через systemd
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+1. Разместите проект в `/opt/sauda-family-bot`.
+2. Создайте системного пользователя `sauda-bot` и выдайте ему доступ к проекту
+   и каталогу `data`.
+3. Установите зависимости и выполните `pnpm build`.
+4. Заполните `/opt/sauda-family-bot/.env` и добавьте CA-файл.
+5. Скопируйте `deploy/sauda-family-bot.service` в `/etc/systemd/system/`.
+6. Выполните:
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now sauda-family-bot
+sudo systemctl status sauda-family-bot
+```
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+Логи доступны через `journalctl -u sauda-family-bot`. Секреты должны храниться
+только в `.env`; файл уже исключён из Git.
 
-## Resources
+## SQLite
 
-Check out a few resources that may come in handy when working with NestJS:
+При старте миграции применяются автоматически. Перед обновлением остановите
+бота и сохраните копию файла SQLite. Не копируйте базу во время активной записи
+без SQLite backup API или предварительного WAL checkpoint.
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observer](https://observer.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+## Безопасность
 
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- не коммитьте `.env`, Telegram/OpenAI ключи, сертификаты и SQLite;
+- перевыпускайте опубликованные токены;
+- оставляйте allowlist непустым;
+- вывод облачного анализа является вспомогательным и требует проверки по
+  исходным документам.

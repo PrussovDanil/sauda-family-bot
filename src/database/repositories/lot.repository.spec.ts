@@ -44,7 +44,7 @@ describe('LotRepository', () => {
     const migrations = database.connection
       .prepare('SELECT COUNT(*) AS count FROM schema_migrations')
       .get() as { count: number };
-    expect(migrations.count).toBe(3);
+    expect(migrations.count).toBe(4);
   });
 
   it('stores money as strings and removes Token from the stored URL', () => {

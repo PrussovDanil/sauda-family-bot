@@ -1,6 +1,8 @@
 import { jest } from '@jest/globals';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Bot } from 'grammy';
+import { AnalysisService } from '../analysis/analysis.service';
 import { DatabaseError } from '../database/errors/database.error';
 import type { LotAnalysisSaveResult } from '../database/persistence.service';
 import { IngestionService } from '../ingestion/ingestion.service';
@@ -73,14 +75,27 @@ describe('TelegramService', () => {
       ingestLot: jest.fn<(lotNumber: string) => Promise<LotIngestionResult>>(),
     };
     ingestion.ingestLot.mockResolvedValue(createIngestionResult());
+    const analysis = {
+      analyzeLot: jest.fn(),
+      isEnabled: jest.fn(() => false),
+    };
+    const config = {
+      get: jest.fn((key: string) =>
+        key === 'TELEGRAM_ALLOWED_USER_IDS' ? '42' : undefined,
+      ),
+    };
 
     return {
       service: new TelegramService(
         bot as unknown as Bot,
         ingestion as unknown as IngestionService,
+        analysis as unknown as AnalysisService,
+        config as unknown as ConfigService,
       ),
       bot,
       ingestion,
+      analysis,
+      config,
     };
   }
 
@@ -95,9 +110,22 @@ describe('TelegramService', () => {
 
     service.onModuleInit();
 
+    expect(bot.command).toHaveBeenCalledWith('id', expect.any(Function));
     expect(bot.command).toHaveBeenCalledWith('start', expect.any(Function));
+    expect(bot.command).toHaveBeenCalledWith('analyze', expect.any(Function));
     expect(bot.on).toHaveBeenCalledWith('message:text', expect.any(Function));
     expect(bot.catch).toHaveBeenCalledWith(expect.any(Function));
+  });
+
+  it('returns the sender Telegram ID without using ingestion', async () => {
+    const { service, ingestion } = createService();
+    const reply = jest.fn<(text: string) => Promise<unknown>>();
+    reply.mockResolvedValue(undefined);
+
+    await service.handleId(123456789, reply);
+
+    expect(reply).toHaveBeenCalledWith('Ваш Telegram ID: 123456789');
+    expect(ingestion.ingestLot).not.toHaveBeenCalled();
   });
 
   it('validates input before calling the ingestion flow', async () => {
@@ -105,7 +133,7 @@ describe('TelegramService', () => {
     const reply = jest.fn<(text: string) => Promise<unknown>>();
     reply.mockResolvedValue(undefined);
 
-    await service.handleLotNumber('460051-1', reply);
+    await service.handleLotNumber('460051-1', reply, 42);
 
     expect(ingestion.ingestLot).not.toHaveBeenCalled();
     expect(reply).toHaveBeenCalledWith(expect.stringContaining('Некорректный'));
@@ -116,10 +144,10 @@ describe('TelegramService', () => {
     const reply = jest.fn<(text: string) => Promise<unknown>>();
     reply.mockResolvedValue(undefined);
 
-    await service.handleLotNumber(' 460051 ', reply);
+    await service.handleLotNumber(' 460051 ', reply, 42);
 
     expect(ingestion.ingestLot).toHaveBeenCalledWith('460051');
-    const message = reply.mock.calls[0][0];
+    const message = reply.mock.calls.at(-1)?.[0] ?? '';
     expect(message).toContain('Лот №460051');
     expect(message).toContain('Стартовая цена: 30229644.00 KZT');
     expect(message).toContain('найдено 2, обработано 2');
@@ -143,7 +171,7 @@ describe('TelegramService', () => {
     const reply = jest.fn<(text: string) => Promise<unknown>>();
     reply.mockResolvedValue(undefined);
 
-    await service.handleLotNumber('460051', reply);
+    await service.handleLotNumber('460051', reply, 42);
 
     expect(reply).toHaveBeenCalledWith(
       expect.stringContaining('⚠️ Лот сохранён частично'),
@@ -171,9 +199,9 @@ describe('TelegramService', () => {
     const reply = jest.fn<(text: string) => Promise<unknown>>();
     reply.mockResolvedValue(undefined);
 
-    await service.handleLotNumber('460051', reply);
+    await service.handleLotNumber('460051', reply, 42);
 
-    const message = reply.mock.calls[0][0];
+    const message = reply.mock.calls.at(-1)?.[0] ?? '';
     expect(message.toLowerCase()).toContain(expected.toLowerCase());
     expect(message).not.toContain(error.message);
     expect(message).not.toContain('private details');
@@ -185,10 +213,46 @@ describe('TelegramService', () => {
     reply.mockRejectedValue(new Error('Telegram token leaked here'));
 
     await expect(
-      service.handleLotNumber('460051', reply),
+      service.handleLotNumber('460051', reply, 42),
     ).resolves.toBeUndefined();
     expect(Logger.prototype.error).toHaveBeenCalledWith(
       'Telegram reply failed',
+    );
+  });
+
+  it('denies users outside the configured allowlist', async () => {
+    const { service, ingestion } = createService();
+    const reply = jest.fn<(text: string) => Promise<unknown>>();
+    reply.mockResolvedValue(undefined);
+
+    await service.handleLotNumber('460051', reply, 99);
+
+    expect(ingestion.ingestLot).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith('У вас нет доступа к этому боту.');
+  });
+
+  it('rejects a concurrent request from the same user', async () => {
+    const { service, ingestion } = createService();
+    let finish: (() => void) | undefined;
+    ingestion.ingestLot.mockImplementation(
+      () =>
+        new Promise<LotIngestionResult>((resolve) => {
+          finish = () => resolve(createIngestionResult());
+        }),
+    );
+    const firstReply = jest.fn<(text: string) => Promise<unknown>>();
+    const secondReply = jest.fn<(text: string) => Promise<unknown>>();
+    firstReply.mockResolvedValue(undefined);
+    secondReply.mockResolvedValue(undefined);
+
+    const first = service.handleLotNumber('460051', firstReply, 42);
+    await Promise.resolve();
+    await service.handleLotNumber('460052', secondReply, 42);
+    finish?.();
+    await first;
+
+    expect(secondReply).toHaveBeenCalledWith(
+      expect.stringContaining('ещё обрабатывается'),
     );
   });
 

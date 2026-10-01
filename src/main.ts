@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { formatStartupError } from './startup-error';
 import { TelegramService } from './telegram/telegram.service';
 
 async function bootstrap(): Promise<void> {
@@ -11,13 +12,13 @@ async function bootstrap(): Promise<void> {
 
   try {
     await applicationContext.get(TelegramService).start();
-  } catch {
+  } catch (error) {
     await applicationContext.close();
-    throw new Error('Application startup failed');
+    throw error;
   }
 }
 
-void bootstrap().catch(() => {
-  console.error('Application startup failed');
+void bootstrap().catch((error: unknown) => {
+  console.error(`Application startup failed: ${formatStartupError(error)}`);
   process.exitCode = 1;
 });

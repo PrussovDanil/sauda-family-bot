@@ -5,7 +5,13 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Bot } from 'grammy';
+import {
+  AnalysisService,
+  type CloudAnalysisResult,
+} from '../analysis/analysis.service';
+import { CloudAnalysisError } from '../analysis/cloud-analysis.error';
 import { DatabaseError } from '../database/errors/database.error';
 import { MigrationError } from '../database/errors/migration.error';
 import type { LotAnalysisSaveResult } from '../database/persistence.service';
@@ -25,9 +31,11 @@ import { TELEGRAM_BOT } from './telegram.constants';
 const LOT_NUMBER_PATTERN = /^\d+$/;
 const TELEGRAM_MESSAGE_LIMIT = 4000;
 const START_MESSAGE =
-  'Отправьте номер лота Sauda E-Qazyna цифрами, например: 460051.';
+  'Отправьте номер лота цифрами. Для облачного анализа используйте например /analyze 463354.';
 const INVALID_INPUT_MESSAGE =
   'Некорректный номер лота. Отправьте только цифры без пробелов и знаков.';
+const BUSY_MESSAGE =
+  'Предыдущий запрос ещё обрабатывается. Дождитесь его завершения.';
 
 type Reply = (text: string) => Promise<unknown>;
 
@@ -35,20 +43,39 @@ type Reply = (text: string) => Promise<unknown>;
 export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TelegramService.name);
 
+  private readonly activeUsers = new Set<number>();
+
   private polling = false;
 
   constructor(
     @Inject(TELEGRAM_BOT) private readonly bot: Bot,
     private readonly ingestionService: IngestionService,
+    private readonly analysisService: AnalysisService,
+    private readonly configService: ConfigService,
   ) {}
 
   onModuleInit(): void {
+    this.bot.command('id', async (context) => {
+      await this.handleId(context.from?.id, (text) => context.reply(text));
+    });
     this.bot.command('start', async (context) => {
-      await this.replySafely((text) => context.reply(text), START_MESSAGE);
+      const reply = (text: string) => context.reply(text);
+      if (await this.authorize(context.from?.id, reply)) {
+        await this.replySafely(reply, START_MESSAGE);
+      }
+    });
+    this.bot.command('analyze', async (context) => {
+      await this.handleAnalyzeCommand(
+        String(context.match ?? ''),
+        (text) => context.reply(text),
+        context.from?.id,
+      );
     });
     this.bot.on('message:text', async (context) => {
-      await this.handleLotNumber(context.message.text, (text) =>
-        context.reply(text),
+      await this.handleLotNumber(
+        context.message.text,
+        (text) => context.reply(text),
+        context.from?.id,
       );
     });
     this.bot.catch(() => {
@@ -69,7 +96,6 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     if (!this.polling) {
       return;
     }
-
     try {
       await this.bot.stop();
     } catch {
@@ -79,19 +105,88 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async handleLotNumber(input: string, reply: Reply): Promise<void> {
+  async handleLotNumber(
+    input: string,
+    reply: Reply,
+    userId: number | undefined,
+  ): Promise<void> {
+    await this.processLot(input, reply, userId, false);
+  }
+
+  async handleAnalyzeCommand(
+    input: string,
+    reply: Reply,
+    userId: number | undefined,
+  ): Promise<void> {
+    await this.processLot(input, reply, userId, true);
+  }
+
+  async handleId(userId: number | undefined, reply: Reply): Promise<void> {
+    await this.replySafely(
+      reply,
+      userId === undefined
+        ? 'Не удалось определить ваш Telegram ID.'
+        : `Ваш Telegram ID: ${userId}`,
+    );
+  }
+
+  private async processLot(
+    input: string,
+    reply: Reply,
+    userId: number | undefined,
+    withAnalysis: boolean,
+  ): Promise<void> {
+    if (!(await this.authorize(userId, reply)) || userId === undefined) {
+      return;
+    }
+
     const lotNumber = input.trim();
     if (!LOT_NUMBER_PATTERN.test(lotNumber)) {
       await this.replySafely(reply, INVALID_INPUT_MESSAGE);
       return;
     }
+    if (this.activeUsers.has(userId)) {
+      await this.replySafely(reply, BUSY_MESSAGE);
+      return;
+    }
 
+    this.activeUsers.add(userId);
+    await this.replySafely(
+      reply,
+      withAnalysis
+        ? `Обрабатываю лот №${lotNumber} и готовлю облачный анализ…`
+        : `Обрабатываю лот №${lotNumber}…`,
+    );
     try {
       const ingestion = await this.ingestionService.ingestLot(lotNumber);
       await this.replySafely(reply, this.formatResult(ingestion));
+      if (withAnalysis) {
+        const analysis = await this.analysisService.analyzeLot(ingestion);
+        await this.replySafely(reply, this.formatAnalysis(analysis));
+      }
     } catch (error) {
       await this.replySafely(reply, this.getUserErrorMessage(error));
+    } finally {
+      this.activeUsers.delete(userId);
     }
+  }
+
+  private async authorize(
+    userId: number | undefined,
+    reply: Reply,
+  ): Promise<boolean> {
+    const allowedIds = new Set(
+      (this.configService.get<string>('TELEGRAM_ALLOWED_USER_IDS') ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
+    if (userId !== undefined && allowedIds.has(String(userId))) {
+      return true;
+    }
+
+    await this.replySafely(reply, 'У вас нет доступа к этому боту.');
+    return false;
   }
 
   private formatResult(ingestion: LotIngestionResult): string {
@@ -107,15 +202,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       `Начало торгов: ${this.safeField(lot.auctionStartsAtRaw ?? 'не указано')}`,
       this.formatDocumentSummary(result),
     ];
-
-    if (result.isPartial) {
-      lines.push(
-        `⚠️ Лот сохранён частично: ошибок документов — ${result.failedDocuments}, неподдерживаемых — ${result.unsupportedDocuments}.`,
-      );
-    } else {
-      lines.push('Лот и документы сохранены успешно.');
-    }
-
+    lines.push(
+      result.isPartial
+        ? `⚠️ Лот сохранён частично: ошибок документов — ${result.failedDocuments}, неподдерживаемых — ${result.unsupportedDocuments}.`
+        : 'Лот и документы сохранены успешно.',
+    );
     return lines.join('\n').slice(0, TELEGRAM_MESSAGE_LIMIT);
   }
 
@@ -127,6 +218,32 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       `переиспользовано ${result.reusedDocuments}`,
       `дубликатов ${result.duplicateDocuments}`,
     ].join(', ');
+  }
+
+  private formatAnalysis(result: CloudAnalysisResult): string {
+    const labels = { high: 'высокий', medium: 'средний', low: 'низкий' };
+    const lines = [
+      `Облачный анализ${result.cached ? ' (из кэша)' : ''}:`,
+      this.safeField(result.analysis.summary, 1200),
+    ];
+    if (result.analysis.risks.length > 0) {
+      lines.push('Риски:');
+      for (const risk of result.analysis.risks) {
+        lines.push(
+          `• ${labels[risk.severity]} — ${this.safeField(risk.title, 250)}: ${this.safeField(risk.evidence, 600)}`,
+        );
+      }
+    }
+    if (result.analysis.recommendedChecks.length > 0) {
+      lines.push('Что проверить:');
+      lines.push(
+        ...result.analysis.recommendedChecks.map(
+          (check) => `• ${this.safeField(check, 500)}`,
+        ),
+      );
+    }
+    lines.push(this.safeField(result.analysis.disclaimer, 700));
+    return lines.join('\n').slice(0, TELEGRAM_MESSAGE_LIMIT);
   }
 
   private getUserErrorMessage(error: unknown): string {
@@ -152,6 +269,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     if (error instanceof DatabaseError || error instanceof MigrationError) {
       return 'Не удалось сохранить результат. Попробуйте позже.';
     }
+    if (error instanceof CloudAnalysisError) {
+      return this.analysisService.isEnabled()
+        ? 'Облачный анализ временно недоступен. Лот и документы уже сохранены.'
+        : 'Облачный анализ отключён администратором.';
+    }
     return 'Не удалось обработать лот. Попробуйте позже.';
   }
 
@@ -168,7 +290,6 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       const code = character.charCodeAt(0);
       return code < 32 || code === 127 ? ' ' : character;
     }).join('');
-
     return withoutControlCharacters
       .replace(/\s+/g, ' ')
       .trim()
