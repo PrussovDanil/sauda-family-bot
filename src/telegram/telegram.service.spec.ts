@@ -2,7 +2,10 @@ import { jest } from '@jest/globals';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Bot } from 'grammy';
-import { AnalysisService } from '../analysis/analysis.service';
+import {
+  AnalysisService,
+  type CloudAnalysisResult,
+} from '../analysis/analysis.service';
 import { DatabaseError } from '../database/errors/database.error';
 import type { LotAnalysisSaveResult } from '../database/persistence.service';
 import { IngestionService } from '../ingestion/ingestion.service';
@@ -64,6 +67,7 @@ describe('TelegramService', () => {
   function createService() {
     const bot = {
       command: jest.fn(),
+      hears: jest.fn(),
       on: jest.fn(),
       catch: jest.fn(),
       start: jest.fn<() => Promise<void>>(),
@@ -76,7 +80,10 @@ describe('TelegramService', () => {
     };
     ingestion.ingestLot.mockResolvedValue(createIngestionResult());
     const analysis = {
-      analyzeLot: jest.fn(),
+      analyzeLot:
+        jest.fn<
+          (ingestion: LotIngestionResult) => Promise<CloudAnalysisResult>
+        >(),
       isEnabled: jest.fn(() => false),
     };
     const config = {
@@ -113,6 +120,7 @@ describe('TelegramService', () => {
     expect(bot.command).toHaveBeenCalledWith('id', expect.any(Function));
     expect(bot.command).toHaveBeenCalledWith('start', expect.any(Function));
     expect(bot.command).toHaveBeenCalledWith('analyze', expect.any(Function));
+    expect(bot.hears).toHaveBeenCalledTimes(3);
     expect(bot.on).toHaveBeenCalledWith('message:text', expect.any(Function));
     expect(bot.catch).toHaveBeenCalledWith(expect.any(Function));
   });
@@ -126,6 +134,32 @@ describe('TelegramService', () => {
 
     expect(reply).toHaveBeenCalledWith('Ваш Telegram ID: 123456789');
     expect(ingestion.ingestLot).not.toHaveBeenCalled();
+  });
+
+  it('uses the analysis flow after the user selects the button', async () => {
+    const { service, ingestion, analysis } = createService();
+    analysis.analyzeLot.mockResolvedValue({
+      analysis: {
+        summary: 'Краткий анализ.',
+        risks: [],
+        missingInformation: [],
+        recommendedChecks: [],
+        disclaimer: 'Проверьте исходные документы.',
+      },
+      cached: false,
+      model: 'test-model',
+    });
+    const reply = jest.fn<(text: string) => Promise<unknown>>();
+    reply.mockResolvedValue(undefined);
+
+    await service.selectAction('analyze', reply, 42);
+    await service.handleTextMessage('463354', reply, 42);
+
+    expect(ingestion.ingestLot).toHaveBeenCalledWith('463354');
+    expect(analysis.analyzeLot).toHaveBeenCalledTimes(1);
+    expect(reply).toHaveBeenCalledWith(
+      expect.stringContaining('Облачный анализ'),
+    );
   });
 
   it('validates input before calling the ingestion flow', async () => {

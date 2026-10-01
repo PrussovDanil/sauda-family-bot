@@ -31,11 +31,22 @@ import { TELEGRAM_BOT } from './telegram.constants';
 const LOT_NUMBER_PATTERN = /^\d+$/;
 const TELEGRAM_MESSAGE_LIMIT = 4000;
 const START_MESSAGE =
-  'Отправьте номер лота цифрами. Для облачного анализа используйте например /analyze 463354.';
+  'Выберите действие кнопкой ниже. Номер лота также можно отправить обычным сообщением.';
 const INVALID_INPUT_MESSAGE =
   'Некорректный номер лота. Отправьте только цифры без пробелов и знаков.';
 const BUSY_MESSAGE =
   'Предыдущий запрос ещё обрабатывается. Дождитесь его завершения.';
+const LOOKUP_BUTTON = '🔎 Найти лот';
+const ANALYZE_BUTTON = '🤖 Анализ лота';
+const ID_BUTTON = '🆔 Мой ID';
+const MAIN_KEYBOARD = {
+  keyboard: [
+    [{ text: LOOKUP_BUTTON }, { text: ANALYZE_BUTTON }],
+    [{ text: ID_BUTTON }],
+  ],
+  resize_keyboard: true,
+  is_persistent: true,
+};
 
 type Reply = (text: string) => Promise<unknown>;
 
@@ -44,6 +55,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TelegramService.name);
 
   private readonly activeUsers = new Set<number>();
+
+  private readonly pendingActions = new Map<number, 'lookup' | 'analyze'>();
 
   private polling = false;
 
@@ -61,7 +74,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     this.bot.command('start', async (context) => {
       const reply = (text: string) => context.reply(text);
       if (await this.authorize(context.from?.id, reply)) {
-        await this.replySafely(reply, START_MESSAGE);
+        try {
+          await context.reply(START_MESSAGE, { reply_markup: MAIN_KEYBOARD });
+        } catch {
+          this.logger.error('Telegram reply failed');
+        }
       }
     });
     this.bot.command('analyze', async (context) => {
@@ -71,8 +88,25 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         context.from?.id,
       );
     });
+    this.bot.hears(LOOKUP_BUTTON, async (context) => {
+      await this.selectAction(
+        'lookup',
+        (text) => context.reply(text),
+        context.from?.id,
+      );
+    });
+    this.bot.hears(ANALYZE_BUTTON, async (context) => {
+      await this.selectAction(
+        'analyze',
+        (text) => context.reply(text),
+        context.from?.id,
+      );
+    });
+    this.bot.hears(ID_BUTTON, async (context) => {
+      await this.handleId(context.from?.id, (text) => context.reply(text));
+    });
     this.bot.on('message:text', async (context) => {
-      await this.handleLotNumber(
+      await this.handleTextMessage(
         context.message.text,
         (text) => context.reply(text),
         context.from?.id,
@@ -119,6 +153,36 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     userId: number | undefined,
   ): Promise<void> {
     await this.processLot(input, reply, userId, true);
+  }
+
+  async handleTextMessage(
+    input: string,
+    reply: Reply,
+    userId: number | undefined,
+  ): Promise<void> {
+    const action =
+      userId === undefined ? undefined : this.pendingActions.get(userId);
+    if (userId !== undefined && LOT_NUMBER_PATTERN.test(input.trim())) {
+      this.pendingActions.delete(userId);
+    }
+    await this.processLot(input, reply, userId, action === 'analyze');
+  }
+
+  async selectAction(
+    action: 'lookup' | 'analyze',
+    reply: Reply,
+    userId: number | undefined,
+  ): Promise<void> {
+    if (!(await this.authorize(userId, reply)) || userId === undefined) {
+      return;
+    }
+    this.pendingActions.set(userId, action);
+    await this.replySafely(
+      reply,
+      action === 'analyze'
+        ? 'Отправьте номер лота для облачного анализа.'
+        : 'Отправьте номер лота для поиска.',
+    );
   }
 
   async handleId(userId: number | undefined, reply: Reply): Promise<void> {
