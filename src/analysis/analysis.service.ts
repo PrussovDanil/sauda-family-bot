@@ -11,6 +11,7 @@ import { AnalysisRepository } from './analysis.repository';
 import { CloudAnalysisError } from './cloud-analysis.error';
 
 const PROMPT_VERSION = 'lot-risk-review-v1';
+const SCHEMA_VERSION = 'cloud-analysis-v1';
 const MAX_DOCUMENT_CHARS = 12_000;
 const MAX_INPUT_CHARS = 40_000;
 
@@ -41,8 +42,15 @@ export class AnalysisService {
     }
 
     const input = this.buildInput(ingestion);
-    const cacheKey = this.createCacheKey(ingestion, model);
-    const cachedJson = this.repository.find(cacheKey);
+    const cacheKey = this.createCacheKey(input, model);
+    let cachedJson: string | undefined;
+    try {
+      cachedJson = this.repository.find(cacheKey);
+    } catch (error) {
+      throw new CloudAnalysisError('Cloud analysis cache lookup failed', true, {
+        cause: error,
+      });
+    }
     if (cachedJson) {
       try {
         return {
@@ -93,7 +101,16 @@ export class AnalysisService {
       );
     }
 
-    const payload: unknown = await response.json();
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw new CloudAnalysisError(
+        'Cloud analysis returned invalid data',
+        false,
+        { cause: error },
+      );
+    }
     const outputText = this.extractOutputText(payload);
     let analysis: CloudAnalysis;
     try {
@@ -108,12 +125,18 @@ export class AnalysisService {
       );
     }
 
-    this.repository.save(
-      cacheKey,
-      model,
-      PROMPT_VERSION,
-      JSON.stringify(analysis),
-    );
+    try {
+      this.repository.save(
+        cacheKey,
+        model,
+        PROMPT_VERSION,
+        JSON.stringify(analysis),
+      );
+    } catch (error) {
+      throw new CloudAnalysisError('Cloud analysis cache save failed', true, {
+        cause: error,
+      });
+    }
     return { analysis, cached: false, model };
   }
 
@@ -142,19 +165,12 @@ export class AnalysisService {
     return sections.join('\n\n').slice(0, MAX_INPUT_CHARS);
   }
 
-  private createCacheKey(ingestion: LotIngestionResult, model: string): string {
+  private createCacheKey(input: string, model: string): string {
     const identity = {
       promptVersion: PROMPT_VERSION,
+      schemaVersion: SCHEMA_VERSION,
       model,
-      publicationId: ingestion.lot.publicationId,
-      title: ingestion.lot.title,
-      status: ingestion.lot.status,
-      startingPrice: ingestion.lot.startingPrice?.amount,
-      auctionStartsAtRaw: ingestion.lot.auctionStartsAtRaw,
-      documents: ingestion.documents.map((document) => ({
-        sha256: document.sha256,
-        status: document.status,
-      })),
+      input,
     };
     return createHash('sha256').update(JSON.stringify(identity)).digest('hex');
   }

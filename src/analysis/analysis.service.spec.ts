@@ -33,6 +33,8 @@ function createIngestion(): LotIngestionResult {
         sourceRaw: '₸ 38 610,00',
       },
       auctionStartsAtRaw: '02.10.2026 10:00',
+      description: 'Описание участка.',
+      seller: 'Проверенный продавец',
       documents: [],
       parsedAt: '2026-10-01T00:00:00.000Z',
     },
@@ -195,6 +197,60 @@ describe('AnalysisService', () => {
     expect(repository.save).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    [
+      'description',
+      (ingestion: LotIngestionResult) => {
+        ingestion.lot.description = 'Изменённое описание';
+      },
+    ],
+    [
+      'seller',
+      (ingestion: LotIngestionResult) => {
+        ingestion.lot.seller = 'Другой продавец';
+      },
+    ],
+    [
+      'document title',
+      (ingestion: LotIngestionResult) => {
+        ingestion.documents[0].title = 'Другой документ.pdf';
+      },
+    ],
+    [
+      'document text',
+      (ingestion: LotIngestionResult) => {
+        ingestion.documents[0].text = 'Изменённый текст документа.';
+      },
+    ],
+  ])('changes the cache key when %s changes', async (_field, mutate) => {
+    const { service, repository } = createService();
+    repository.find.mockReturnValue(JSON.stringify(analysis));
+
+    await service.analyzeLot(createIngestion());
+    const changedIngestion = createIngestion();
+    mutate(changedIngestion);
+    await service.analyzeLot(changedIngestion);
+
+    expect(repository.find).toHaveBeenCalledTimes(2);
+    expect(repository.find.mock.calls[0][0]).not.toBe(
+      repository.find.mock.calls[1][0],
+    );
+  });
+
+  it('changes the cache key when the configured model changes', async () => {
+    const first = createService({ OPENAI_MODEL: 'first-model' });
+    const second = createService({ OPENAI_MODEL: 'second-model' });
+    first.repository.find.mockReturnValue(JSON.stringify(analysis));
+    second.repository.find.mockReturnValue(JSON.stringify(analysis));
+
+    await first.service.analyzeLot(createIngestion());
+    await second.service.analyzeLot(createIngestion());
+
+    expect(first.repository.find.mock.calls[0][0]).not.toBe(
+      second.repository.find.mock.calls[0][0],
+    );
+  });
+
   it('replaces an invalid cached result with a fresh response', async () => {
     const { service, repository } = createService();
     repository.find.mockReturnValue('{"summary":"incomplete"}');
@@ -242,6 +298,59 @@ describe('AnalysisService', () => {
     await expect(service.analyzeLot(createIngestion())).rejects.toMatchObject({
       name: CloudAnalysisError.name,
       retryable: false,
+    });
+  });
+
+  it('normalizes a malformed successful response body', async () => {
+    const { service } = createService();
+    jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response('not-json', { status: 200 }));
+
+    await expect(service.analyzeLot(createIngestion())).rejects.toMatchObject({
+      name: CloudAnalysisError.name,
+      retryable: false,
+      message: 'Cloud analysis returned invalid data',
+    });
+  });
+
+  it('normalizes cache lookup failures as retryable errors', async () => {
+    const { service, repository } = createService();
+    repository.find.mockImplementation(() => {
+      throw new Error('private database details');
+    });
+
+    await expect(service.analyzeLot(createIngestion())).rejects.toMatchObject({
+      name: CloudAnalysisError.name,
+      retryable: true,
+      message: 'Cloud analysis cache lookup failed',
+    });
+  });
+
+  it('normalizes cache save failures after a valid response', async () => {
+    const { service, repository } = createService();
+    repository.save.mockImplementation(() => {
+      throw new Error('private database details');
+    });
+    jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          output: [
+            {
+              content: [
+                { type: 'output_text', text: JSON.stringify(analysis) },
+              ],
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(service.analyzeLot(createIngestion())).rejects.toMatchObject({
+      name: CloudAnalysisError.name,
+      retryable: true,
+      message: 'Cloud analysis cache save failed',
     });
   });
 
