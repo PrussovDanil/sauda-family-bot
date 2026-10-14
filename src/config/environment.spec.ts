@@ -68,4 +68,29 @@ describe('validateEnvironment', () => {
       'Invalid environment configuration: OPENAI_API_KEY, OPENAI_MODEL',
     );
   });
+
+  it('accepts ChatGPT authentication without an API key', () => {
+    expect(
+      validateEnvironment({
+        ...validEnvironment,
+        OPENAI_ANALYSIS_ENABLED: 'true',
+        OPENAI_AUTH_MODE: 'chatgpt',
+        OPENAI_MODEL: 'gpt-6.1-sol',
+        OPENAI_CHATGPT_CREDENTIAL_KEY: Buffer.alloc(32, 1).toString('base64'),
+      }),
+    ).toMatchObject({ OPENAI_AUTH_MODE: 'chatgpt' });
+  });
+
+  it('requires an encryption key in ChatGPT mode', () => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        OPENAI_ANALYSIS_ENABLED: 'true',
+        OPENAI_AUTH_MODE: 'chatgpt',
+        OPENAI_MODEL: 'gpt-6.1-sol',
+      }),
+    ).toThrow(
+      'Invalid environment configuration: OPENAI_CHATGPT_CREDENTIAL_KEY',
+    );
+  });
 });

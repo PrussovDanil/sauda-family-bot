@@ -9,11 +9,14 @@ import {
 } from './analysis.schema';
 import { AnalysisRepository } from './analysis.repository';
 import { CloudAnalysisError } from './cloud-analysis.error';
+import { ChatGptAuthService } from './chatgpt-auth.service';
 
 const PROMPT_VERSION = 'lot-risk-review-v1';
 const SCHEMA_VERSION = 'cloud-analysis-v1';
 const MAX_DOCUMENT_CHARS = 12_000;
 const MAX_INPUT_CHARS = 40_000;
+const API_KEY_TIMEOUT_MS = 45_000;
+const CHATGPT_TIMEOUT_MS = 180_000;
 
 export interface CloudAnalysisResult {
   analysis: CloudAnalysis;
@@ -26,6 +29,7 @@ export class AnalysisService {
   constructor(
     private readonly configService: ConfigService,
     private readonly repository: AnalysisRepository,
+    private readonly chatGptAuth: ChatGptAuthService,
   ) {}
 
   isEnabled(): boolean {
@@ -35,9 +39,16 @@ export class AnalysisService {
   async analyzeLot(
     ingestion: LotIngestionResult,
   ): Promise<CloudAnalysisResult> {
+    const authMode =
+      this.configService.get<string>('OPENAI_AUTH_MODE') ?? 'api_key';
     const apiKey = this.configService.get<string>('OPENAI_API_KEY')?.trim();
     const model = this.configService.get<string>('OPENAI_MODEL')?.trim();
-    if (!this.isEnabled() || !apiKey || !model) {
+    if (
+      !this.isEnabled() ||
+      !model ||
+      (authMode === 'api_key' && !apiKey) ||
+      (authMode === 'chatgpt' && !this.chatGptAuth.isConfigured())
+    ) {
       throw new CloudAnalysisError('Cloud analysis is not configured');
     }
 
@@ -65,18 +76,24 @@ export class AnalysisService {
 
     let response: Response;
     try {
+      const credential =
+        authMode === 'chatgpt'
+          ? await this.chatGptAuth.getAccessToken()
+          : apiKey!;
       response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
-          authorization: `Bearer ${apiKey}`,
+          authorization: `Bearer ${credential}`,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
           model,
           store: false,
+          ...(authMode === 'chatgpt' ? { stream: true } : {}),
           instructions:
             'Analyze only the supplied verified auction facts and extracted document text. Do not invent facts or perform financial calculations. Clearly identify uncertainty. Respond in Russian.',
-          input,
+          input:
+            authMode === 'chatgpt' ? [{ role: 'user', content: input }] : input,
           text: {
             format: {
               type: 'json_schema',
@@ -86,7 +103,9 @@ export class AnalysisService {
             },
           },
         }),
-        signal: AbortSignal.timeout(45_000),
+        signal: AbortSignal.timeout(
+          authMode === 'chatgpt' ? CHATGPT_TIMEOUT_MS : API_KEY_TIMEOUT_MS,
+        ),
       });
     } catch (error) {
       throw new CloudAnalysisError('Cloud analysis request failed', true, {
@@ -101,17 +120,10 @@ export class AnalysisService {
       );
     }
 
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      throw new CloudAnalysisError(
-        'Cloud analysis returned invalid data',
-        false,
-        { cause: error },
-      );
-    }
-    const outputText = this.extractOutputText(payload);
+    const outputText =
+      authMode === 'chatgpt'
+        ? await this.extractStreamOutputText(response)
+        : await this.extractJsonOutputText(response);
     let analysis: CloudAnalysis;
     try {
       analysis = cloudAnalysisSchema.parse(JSON.parse(outputText));
@@ -138,6 +150,89 @@ export class AnalysisService {
       });
     }
     return { analysis, cached: false, model };
+  }
+
+  private async extractJsonOutputText(response: Response): Promise<string> {
+    try {
+      return this.extractOutputText(await response.json());
+    } catch (error) {
+      if (error instanceof CloudAnalysisError) throw error;
+      throw new CloudAnalysisError(
+        'Cloud analysis returned invalid data',
+        false,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
+  private async extractStreamOutputText(response: Response): Promise<string> {
+    if (!response.body) {
+      throw new CloudAnalysisError(
+        'Cloud analysis response is incomplete',
+        true,
+      );
+    }
+    const reader = response.body
+      .pipeThrough(new TextDecoderStream())
+      .getReader();
+    let buffer = '';
+    let text = '';
+    let completed = false;
+    try {
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += chunk.value;
+        const events = buffer.split(/\r?\n\r?\n/);
+        buffer = events.pop() ?? '';
+        for (const eventBlock of events) {
+          for (const line of eventBlock.split(/\r?\n/)) {
+            if (!line.startsWith('data:')) continue;
+            const data = line.slice(5).trim();
+            if (!data || data === '[DONE]') continue;
+            const event = JSON.parse(data) as {
+              type?: string;
+              delta?: unknown;
+            };
+            if (
+              event.type === 'response.output_text.delta' &&
+              typeof event.delta === 'string'
+            ) {
+              text += event.delta;
+            } else if (event.type === 'response.completed') {
+              completed = true;
+            } else if (
+              event.type === 'response.failed' ||
+              event.type === 'response.incomplete' ||
+              event.type === 'error'
+            ) {
+              throw new CloudAnalysisError(
+                'Cloud analysis service rejected the request',
+                true,
+              );
+            }
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof CloudAnalysisError) throw error;
+      throw new CloudAnalysisError(
+        'Cloud analysis returned invalid data',
+        true,
+        {
+          cause: error,
+        },
+      );
+    }
+    if (!completed || !text) {
+      throw new CloudAnalysisError(
+        'Cloud analysis response is incomplete',
+        true,
+      );
+    }
+    return text;
   }
 
   private buildInput(ingestion: LotIngestionResult): string {

@@ -52,8 +52,29 @@ pnpm start
 /analyze 463354
 ```
 
-Он отключён по умолчанию. Для включения задайте API-ключ, модель и
-`OPENAI_ANALYSIS_ENABLED=true`. В OpenAI отправляется только ограниченный набор
+Он отключён по умолчанию. Для включения через обычный API задайте API-ключ,
+модель, `OPENAI_AUTH_MODE=api_key` и `OPENAI_ANALYSIS_ENABLED=true`.
+
+Для личного некоммерческого использования можно подключить план ChatGPT Plus
+или Pro без отдельного API-баланса:
+
+```bash
+openssl rand -base64 32
+```
+
+Сохраните результат в `.env` как `OPENAI_CHATGPT_CREDENTIAL_KEY`, задайте
+`OPENAI_AUTH_MODE=chatgpt`, `OPENAI_MODEL=gpt-6.1-sol` и выполните:
+
+```bash
+pnpm openai:login
+```
+
+Завершите вход в открывшемся браузере. OAuth-токены сохраняются только в
+зашифрованном файле, указанном в `OPENAI_CHATGPT_CREDENTIAL_PATH`; ключ должен
+храниться отдельно в локальном `.env`. После успешного входа включите
+`OPENAI_ANALYSIS_ENABLED=true` и перезапустите бота.
+
+В OpenAI отправляется только ограниченный набор
 фактов и извлечённого текста без URL с токенами. Запросы выполняются через
 Responses API со `store: false` и Structured Outputs; результаты кэшируются в
 локальной SQLite. См. [официальную документацию OpenAI](https://developers.openai.com/api/docs/guides/structured-outputs).

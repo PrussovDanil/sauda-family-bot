@@ -4,6 +4,7 @@ import type { LotIngestionResult } from '../ingestion/ingestion.service';
 import { AnalysisRepository } from './analysis.repository';
 import { AnalysisService } from './analysis.service';
 import { CloudAnalysisError } from './cloud-analysis.error';
+import { ChatGptAuthService } from './chatgpt-auth.service';
 
 const analysis = {
   summary: 'Документы требуют дополнительной проверки.',
@@ -92,12 +93,20 @@ describe('AnalysisService', () => {
         ) => void
       >(),
     };
+    const chatGptAuth = {
+      isConfigured: jest.fn(() => values.OPENAI_AUTH_MODE === 'chatgpt'),
+      getAccessToken: jest
+        .fn<() => Promise<string>>()
+        .mockResolvedValue('oauth-token'),
+    };
     return {
       service: new AnalysisService(
         config as unknown as ConfigService,
         repository as unknown as AnalysisRepository,
+        chatGptAuth as unknown as ChatGptAuthService,
       ),
       repository,
+      chatGptAuth,
     };
   }
 
@@ -148,6 +157,63 @@ describe('AnalysisService', () => {
     expect(request.input).not.toContain('private-token');
     expect(request.input).not.toContain('private-file-id');
     expect(repository.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses OAuth token and requires a completed response stream', async () => {
+    const { service, chatGptAuth } = createService({
+      OPENAI_AUTH_MODE: 'chatgpt',
+      OPENAI_API_KEY: '',
+    });
+    const events = [
+      { type: 'response.output_text.delta', delta: JSON.stringify(analysis) },
+      { type: 'response.completed' },
+    ];
+    const body = events
+      .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+      .join('');
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(body, { status: 200 }));
+
+    await expect(service.analyzeLot(createIngestion())).resolves.toMatchObject({
+      analysis,
+      cached: false,
+    });
+
+    expect(chatGptAuth.getAccessToken).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({
+      authorization: 'Bearer oauth-token',
+    });
+    const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as {
+      store: boolean;
+      stream: boolean;
+      input: Array<{ role: string; content: string }>;
+    };
+    expect(request).toMatchObject({ store: false, stream: true });
+    expect(request.input).toEqual([expect.objectContaining({ role: 'user' })]);
+    expect(request.input[0].content).not.toContain('private-token');
+  });
+
+  it('rejects an interrupted OAuth response stream', async () => {
+    const { service } = createService({
+      OPENAI_AUTH_MODE: 'chatgpt',
+      OPENAI_API_KEY: '',
+    });
+    jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(
+        `data: ${JSON.stringify({
+          type: 'response.output_text.delta',
+          delta: JSON.stringify(analysis),
+        })}\n\n`,
+        { status: 200 },
+      ),
+    );
+
+    await expect(service.analyzeLot(createIngestion())).rejects.toMatchObject({
+      name: CloudAnalysisError.name,
+      retryable: true,
+      message: 'Cloud analysis response is incomplete',
+    });
   });
 
   it('returns a validated cached result without calling OpenAI', async () => {
