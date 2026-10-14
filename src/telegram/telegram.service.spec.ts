@@ -108,6 +108,7 @@ describe('TelegramService', () => {
 
   beforeEach(() => {
     jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -172,6 +173,22 @@ describe('TelegramService', () => {
     expect(ingestion.ingestLot).not.toHaveBeenCalled();
     expect(reply).toHaveBeenCalledWith(expect.stringContaining('Некорректный'));
   });
+
+  it.each(['46471', '4647133'])(
+    'rejects lot number %s with an invalid length before ingestion',
+    async (lotNumber) => {
+      const { service, ingestion } = createService();
+      const reply = jest.fn<(text: string) => Promise<unknown>>();
+      reply.mockResolvedValue(undefined);
+
+      await service.handleLotNumber(lotNumber, reply, 42);
+
+      expect(ingestion.ingestLot).not.toHaveBeenCalled();
+      expect(reply).toHaveBeenCalledWith(
+        expect.stringContaining('ровно 6 цифр'),
+      );
+    },
+  );
 
   it('formats only verified lot facts and persistence counters', async () => {
     const { service, ingestion } = createService();
@@ -250,7 +267,28 @@ describe('TelegramService', () => {
       service.handleLotNumber('460051', reply, 42),
     ).resolves.toBeUndefined();
     expect(Logger.prototype.error).toHaveBeenCalledWith(
-      'Telegram reply failed',
+      'Telegram reply failed: Error',
+    );
+    expect(Logger.prototype.error).not.toHaveBeenCalledWith(
+      expect.stringContaining('Telegram token leaked here'),
+    );
+  });
+
+  it('logs a safe failure type and lot number for operations', async () => {
+    const { service, ingestion } = createService();
+    ingestion.ingestLot.mockRejectedValue(
+      new SaudaUnavailableError(new Error('private upstream response')),
+    );
+    const reply = jest.fn<(text: string) => Promise<unknown>>();
+    reply.mockResolvedValue(undefined);
+
+    await service.handleLotNumber('460051', reply, 42);
+
+    expect(Logger.prototype.error).toHaveBeenCalledWith(
+      'Lot 460051 processing failed: SaudaUnavailableError',
+    );
+    expect(Logger.prototype.error).not.toHaveBeenCalledWith(
+      expect.stringContaining('private upstream response'),
     );
   });
 

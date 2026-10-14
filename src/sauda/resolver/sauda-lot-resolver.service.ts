@@ -12,14 +12,15 @@ const SEARCH_RESULTS_SELECTOR = '.search-results';
 const LIVE_SEARCH_ROOT_SELECTOR = '[id^="form-container-MnuAuctionList"]';
 const EMPTY_RESULTS_SELECTOR = '[data-search-empty], .search-results-empty';
 const LIVE_EMPTY_RESULTS_TEXT = 'По вашему запросу торгов не найдено';
+const LOT_NUMBER_PATTERN = /^\d{6}$/;
 const LOT_BADGE_PATTERN = /^№\s*(\d+)$/;
 const PUBLICATION_PATH_PATTERN = /^\/ru\/list\/(\d+)$/;
 
 @Injectable()
 export class SaudaLotResolverService {
   async resolve(lotNumber: string): Promise<LotReference> {
-    if (!/^\d+$/.test(lotNumber)) {
-      throw new TypeError('Lot number must contain digits only');
+    if (!LOT_NUMBER_PATTERN.test(lotNumber)) {
+      throw new TypeError('Lot number must contain exactly 6 digits');
     }
 
     const html = await this.loadSearchPage(lotNumber);

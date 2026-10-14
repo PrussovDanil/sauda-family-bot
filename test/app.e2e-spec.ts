@@ -13,6 +13,7 @@ describe('AppModule application context (e2e)', () => {
     let finishPolling: (() => void) | undefined;
     const bot = {
       command: jest.fn(),
+      hears: jest.fn(),
       on: jest.fn(),
       catch: jest.fn(),
       start: jest.fn(
@@ -42,6 +43,7 @@ describe('AppModule application context (e2e)', () => {
 
       expect(bot.start).toHaveBeenCalledTimes(1);
       expect(bot.command).toHaveBeenCalledWith('start', expect.any(Function));
+      expect(bot.hears).toHaveBeenCalledTimes(3);
       expect(bot.on).toHaveBeenCalledWith('message:text', expect.any(Function));
 
       await applicationContext.close();

@@ -2,6 +2,8 @@
 Description=Sauda Family Telegram Bot
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -10,9 +12,17 @@ Group=sauda-bot
 WorkingDirectory=/opt/sauda-family-bot
 EnvironmentFile=/opt/sauda-family-bot/.env
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/bin/env pnpm start:prod
+Environment=NODE_ENV=production
+Environment=NODE_EXTRA_CA_CERTS=/opt/sauda-family-bot/.certs/ssl-com-tls-issuing-rsa-ca-r1.pem
+ExecStart=/usr/bin/node /opt/sauda-family-bot/dist/main.js
 Restart=on-failure
-RestartSec=5
+RestartSec=5s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+SyslogIdentifier=sauda-family-bot
+StandardOutput=journal
+StandardError=journal
+UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

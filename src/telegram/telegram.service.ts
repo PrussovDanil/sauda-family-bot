@@ -26,14 +26,15 @@ import { LotPageParseError } from '../sauda/errors/lot-page-parse.error';
 import { LotPageUnavailableError } from '../sauda/errors/lot-page-unavailable.error';
 import { SaudaSearchParseError } from '../sauda/errors/sauda-search-parse.error';
 import { SaudaUnavailableError } from '../sauda/errors/sauda-unavailable.error';
+import { formatStartupError } from '../startup-error';
 import { TELEGRAM_BOT } from './telegram.constants';
 
-const LOT_NUMBER_PATTERN = /^\d+$/;
+const LOT_NUMBER_PATTERN = /^\d{6}$/;
 const TELEGRAM_MESSAGE_LIMIT = 4000;
 const START_MESSAGE =
   'Выберите действие кнопкой ниже. Номер лота также можно отправить обычным сообщением.';
 const INVALID_INPUT_MESSAGE =
-  'Некорректный номер лота. Отправьте только цифры без пробелов и знаков.';
+  'Некорректный номер лота. Отправьте ровно 6 цифр без пробелов и знаков.';
 const BUSY_MESSAGE =
   'Предыдущий запрос ещё обрабатывается. Дождитесь его завершения.';
 const LOOKUP_BUTTON = '🔎 Найти лот';
@@ -76,8 +77,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       if (await this.authorize(context.from?.id, reply)) {
         try {
           await context.reply(START_MESSAGE, { reply_markup: MAIN_KEYBOARD });
-        } catch {
-          this.logger.error('Telegram reply failed');
+        } catch (error) {
+          this.logError('Telegram reply failed', error);
         }
       }
     });
@@ -112,8 +113,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         context.from?.id,
       );
     });
-    this.bot.catch(() => {
-      this.logger.error('Telegram update handling failed');
+    this.bot.catch((error) => {
+      this.logError('Telegram update handling failed', error.error);
     });
   }
 
@@ -132,8 +133,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
     try {
       await this.bot.stop();
-    } catch {
-      this.logger.error('Telegram bot shutdown failed');
+    } catch (error) {
+      this.logError('Telegram bot shutdown failed', error);
     } finally {
       this.polling = false;
     }
@@ -229,6 +230,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         await this.replySafely(reply, this.formatAnalysis(analysis));
       }
     } catch (error) {
+      this.logLotFailure(lotNumber, error);
       await this.replySafely(reply, this.getUserErrorMessage(error));
     } finally {
       this.activeUsers.delete(userId);
@@ -344,9 +346,25 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private async replySafely(reply: Reply, text: string): Promise<void> {
     try {
       await reply(text);
-    } catch {
-      this.logger.error('Telegram reply failed');
+    } catch (error) {
+      this.logError('Telegram reply failed', error);
     }
+  }
+
+  private logLotFailure(lotNumber: string, error: unknown): void {
+    const message = `Lot ${lotNumber} processing failed: ${formatStartupError(error)}`;
+    if (
+      error instanceof LotNotFoundError ||
+      error instanceof LotAmbiguousError
+    ) {
+      this.logger.warn(message);
+      return;
+    }
+    this.logger.error(message);
+  }
+
+  private logError(message: string, error: unknown): void {
+    this.logger.error(`${message}: ${formatStartupError(error)}`);
   }
 
   private safeField(value: string, maxLength = 300): string {

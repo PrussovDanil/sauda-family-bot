@@ -81,7 +81,14 @@ describe('AnalysisService', () => {
     };
     const repository = {
       find: jest.fn<(key: string) => string | undefined>(),
-      save: jest.fn(),
+      save: jest.fn<
+        (
+          cacheKey: string,
+          model: string,
+          promptVersion: string,
+          resultJson: string,
+        ) => void
+      >(),
     };
     return {
       service: new AnalysisService(
@@ -151,6 +158,68 @@ describe('AnalysisService', () => {
       cached: true,
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('reuses a saved result when the same lot is analyzed again', async () => {
+    const { service, repository } = createService();
+    let cachedResult: string | undefined;
+    repository.find.mockImplementation(() => cachedResult);
+    repository.save.mockImplementation(
+      (_key, _model, _promptVersion, resultJson: string) => {
+        cachedResult = resultJson;
+      },
+    );
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          output: [
+            {
+              content: [
+                { type: 'output_text', text: JSON.stringify(analysis) },
+              ],
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(service.analyzeLot(createIngestion())).resolves.toMatchObject({
+      cached: false,
+    });
+    await expect(service.analyzeLot(createIngestion())).resolves.toMatchObject({
+      cached: true,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(repository.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces an invalid cached result with a fresh response', async () => {
+    const { service, repository } = createService();
+    repository.find.mockReturnValue('{"summary":"incomplete"}');
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          output: [
+            {
+              content: [
+                { type: 'output_text', text: JSON.stringify(analysis) },
+              ],
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(service.analyzeLot(createIngestion())).resolves.toMatchObject({
+      analysis,
+      cached: false,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(repository.save).toHaveBeenCalledTimes(1);
   });
 
   it('rejects malformed structured output', async () => {

@@ -50,6 +50,18 @@ describe('SaudaLotResolverService', () => {
     });
   });
 
+  it.each(['46471', '4647133'])(
+    'rejects invalid lot number length %s without loading Sauda',
+    async (lotNumber) => {
+      const loadSearchPage = jest.spyOn(service, 'loadSearchPage');
+
+      await expect(service.resolve(lotNumber)).rejects.toThrow(
+        'Lot number must contain exactly 6 digits',
+      );
+      expect(loadSearchPage).not.toHaveBeenCalled();
+    },
+  );
+
   it('throws a dedicated error when a lot number has multiple publications', async () => {
     jest
       .spyOn(service, 'loadSearchPage')

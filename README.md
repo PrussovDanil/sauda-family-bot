@@ -83,10 +83,17 @@ Unit-тесты парсеров используют сохранённые HTM
 ## Постоянный запуск через systemd
 
 1. Разместите проект в `/opt/sauda-family-bot`.
-2. Создайте системного пользователя `sauda-bot` и выдайте ему доступ к проекту
-   и каталогу `data`.
+2. Создайте системного пользователя `sauda-bot`, каталог `data` и выдайте
+   пользователю права на этот каталог.
 3. Установите зависимости и выполните `pnpm build`.
-4. Заполните `/opt/sauda-family-bot/.env` и добавьте CA-файл.
+4. Заполните `/opt/sauda-family-bot/.env`, добавьте CA-файл, затем выполните:
+
+```bash
+sudo chown sauda-bot:sauda-bot /opt/sauda-family-bot/.env
+sudo chmod 600 /opt/sauda-family-bot/.env
+sudo chown -R sauda-bot:sauda-bot /opt/sauda-family-bot/data
+```
+
 5. Скопируйте `deploy/sauda-family-bot.service` в `/etc/systemd/system/`.
 6. Выполните:
 
@@ -94,10 +101,13 @@ Unit-тесты парсеров используют сохранённые HTM
 sudo systemctl daemon-reload
 sudo systemctl enable --now sauda-family-bot
 sudo systemctl status sauda-family-bot
+sudo journalctl -u sauda-family-bot -f
 ```
 
-Логи доступны через `journalctl -u sauda-family-bot`. Секреты должны храниться
-только в `.env`; файл уже исключён из Git.
+Сервис запускает собранный `dist/main.js` напрямую через Node.js, перезапускается
+после аварийного завершения и корректно обрабатывает `SIGTERM`. Логи содержат
+номер лота и безопасный тип ошибки, но не тексты ответов внешних сервисов и не
+секреты. Секреты должны храниться только в `.env`; файл уже исключён из Git.
 
 ## SQLite
 
